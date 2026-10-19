@@ -783,18 +783,10 @@ def test_mtf_alignment_check_unit():
     m = FakeMarket(bullish=True)
     ok, note = mtf_alignment_check("ETHUSDT", m, "BULLISH")
     assert ok, note
-    assert "15m/10m/5m/1m" in note
+    assert "15m/10m/5m" in note
     m.klines["5m"] = candles_from_closes([100.0] * 220)
     ok, note = mtf_alignment_check("ETHUSDT", m, "BULLISH")
     assert not ok and "5m=neutral" in note
-
-
-def test_mtf_alignment_check_1m_breaks():
-    from signal_engine import mtf_alignment_check
-    m = FakeMarket(bullish=True)
-    m.klines["1m"] = candles_from_closes([100.0] * 220)
-    ok, note = mtf_alignment_check("ETHUSDT", m, "BULLISH")
-    assert not ok and "1m=neutral" in note
 
 
 def test_aggregate_10m_unit():

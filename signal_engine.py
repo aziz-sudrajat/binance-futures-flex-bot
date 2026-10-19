@@ -482,12 +482,14 @@ def _dir_of_signal(sig: str) -> str:
 def mtf_alignment_check(symbol: str, market, direction: str,
                         a15: dict | None = None,
                         a30: dict | None = None) -> tuple[bool, str]:
-    """flex: 15m, 10m, 5m, 1m must ALL point the signal direction.
+    """flex: 15m, 10m, 5m must ALL point the signal direction.
 
     Short-timeframe focus (user spec 2026-10-19): scalp the 2% move instead
     of waiting for multi-hour trend alignment. 10m is synthesized from 5m
     (data.get_klines — no venue offers 10m). All legs use the indicator
-    setup direction. Fail-closed on any data error — never assume alignment.
+    setup direction. The 1m leg was dropped (user spec 2026-10-19) —
+    microstructure noise caused more rejections than it was worth.
+    Fail-closed on any data error — never assume alignment.
 
     a30 is kept for caller compatibility (confidence scoring and quality
     deltas still use it); it no longer gates alignment.
@@ -501,22 +503,19 @@ def mtf_alignment_check(symbol: str, market, direction: str,
                                market.get_klines(symbol, "10m"))
         a5m = analyze_candles(symbol, "5m",
                               market.get_klines(symbol, "5m"))
-        a1m = analyze_candles(symbol, "1m",
-                              market.get_klines(symbol, "1m"))
     except Exception as e:  # noqa: BLE001
         return False, f"MTF data error: {e} — holding (fail-closed)"
     legs = {
         "15m": _dir_of_signal(a15.get("signal")),
         "10m": _dir_of_signal(a10m.get("signal")),
         "5m": _dir_of_signal(a5m.get("signal")),
-        "1m": _dir_of_signal(a1m.get("signal")),
     }
     bad = [tf for tf, d in legs.items() if d != want]
     if bad:
         detail = ", ".join(f"{tf}={legs[tf].lower()}" for tf in legs)
         return False, (f"MTF tak selaras ({detail}; "
                        f"butuh {want.lower()} semua)")
-    return True, f"MTF selaras {want.lower()} (15m/10m/5m/1m)"
+    return True, f"MTF selaras {want.lower()} (15m/10m/5m)"
 
 
 def btc_direction_check(market, direction: str) -> tuple[bool, str]:
