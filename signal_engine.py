@@ -482,39 +482,41 @@ def _dir_of_signal(sig: str) -> str:
 def mtf_alignment_check(symbol: str, market, direction: str,
                         a15: dict | None = None,
                         a30: dict | None = None) -> tuple[bool, str]:
-    """sedang/ketat: 4h, 1h, 30m, 15m, 5m must ALL point the signal direction.
+    """flex: 15m, 10m, 5m, 1m must ALL point the signal direction.
 
-    Cascade order (user spec 2026-10-16): 4h -> 1h -> 30m -> 15m -> 5m.
-    15m/30m/5m use the indicator setup direction; 4h/1h use the EMA21/50
-    trend. Fail-closed on any data error — never assume alignment.
+    Short-timeframe focus (user spec 2026-10-19): scalp the 2% move instead
+    of waiting for multi-hour trend alignment. 10m is synthesized from 5m
+    (data.get_klines — no venue offers 10m). All legs use the indicator
+    setup direction. Fail-closed on any data error — never assume alignment.
+
+    a30 is kept for caller compatibility (confidence scoring and quality
+    deltas still use it); it no longer gates alignment.
     """
     want = "BULLISH" if direction == "BULLISH" else "BEARISH"
     try:
         if a15 is None:
             a15 = analyze_candles(symbol, "15m",
                                   market.get_klines(symbol, "15m"))
-        if a30 is None:
-            a30 = analyze_candles(symbol, "30m",
-                                  market.get_klines(symbol, "30m"))
+        a10m = analyze_candles(symbol, "10m",
+                               market.get_klines(symbol, "10m"))
         a5m = analyze_candles(symbol, "5m",
                               market.get_klines(symbol, "5m"))
-        k4h = market.get_klines(symbol, "4h")
-        k1h = market.get_klines(symbol, "1h")
+        a1m = analyze_candles(symbol, "1m",
+                              market.get_klines(symbol, "1m"))
     except Exception as e:  # noqa: BLE001
         return False, f"MTF data error: {e} — holding (fail-closed)"
     legs = {
-        "4h": mtf_trend_direction([float(c["close"]) for c in k4h]),
-        "1h": mtf_trend_direction([float(c["close"]) for c in k1h]),
-        "30m": _dir_of_signal(a30.get("signal")),
         "15m": _dir_of_signal(a15.get("signal")),
+        "10m": _dir_of_signal(a10m.get("signal")),
         "5m": _dir_of_signal(a5m.get("signal")),
+        "1m": _dir_of_signal(a1m.get("signal")),
     }
     bad = [tf for tf, d in legs.items() if d != want]
     if bad:
         detail = ", ".join(f"{tf}={legs[tf].lower()}" for tf in legs)
         return False, (f"MTF tak selaras ({detail}; "
                        f"butuh {want.lower()} semua)")
-    return True, f"MTF selaras {want.lower()} (4h/1h/30m/15m/5m)"
+    return True, f"MTF selaras {want.lower()} (15m/10m/5m/1m)"
 
 
 def btc_direction_check(market, direction: str) -> tuple[bool, str]:
@@ -799,7 +801,7 @@ def prefilter_symbol(symbol: str, market, tickers: dict | None = None
       stage 0: 24h quote volume >= MIN_24H_VOLUME_USD (fail-closed)
       stage 1: 15m indicator setup — directional signal, trade plan,
                strength >= MIN_STRENGTH (bullish-only respected)
-      stage 2: MTF alignment 4h/1h/30m/15m/5m (fail-closed)
+      stage 2: MTF alignment 15m/10m/5m/1m (fail-closed)
 
     The freshness gate (stage 1b) is deliberately NOT here: it needs a fresh
     live price, which stage 2 (full evaluate_symbol) fetches per symbol.
@@ -901,13 +903,9 @@ def prefilter_symbol(symbol: str, market, tickers: dict | None = None
         if pat_score < int(pattern_min):
             return False, f"pattern score {pat_score} below prefilter min {pattern_min}"
 
-    # ---- Stage 2: MTF alignment — 4h, 1h, 30m, 15m, 5m same direction
-    # (SEMUA mode). Fail-closed.
-    try:
-        a30 = analyze_candles(symbol, "30m", market.get_klines(symbol, "30m"))
-    except Exception as e:  # noqa: BLE001
-        return False, f"30m data error: {e} — holding (fail-closed)"
-    ok, note = mtf_alignment_check(symbol, market, direction, a15, a30)
+    # ---- Stage 2: MTF alignment — 15m, 10m, 5m, 1m same direction
+    # (SEMUA mode). Fail-closed. 30m no longer gates alignment.
+    ok, note = mtf_alignment_check(symbol, market, direction, a15)
     if not ok:
         return False, note
     return True, direction

@@ -29,8 +29,10 @@ class StageMarket:
     """Duck-typed market with per-test knobs for prefilter stages 0-2."""
 
     def __init__(self, closes_15m, closes_30m=None, closes_5m=None,
-                 closes_4h=None, closes_1h=None, volume=50_000_000.0,
-                 raise_30m=False, btc_bearish=False):
+                 closes_4h=None, closes_1h=None, closes_10m=None,
+                 closes_1m=None, volume=50_000_000.0,
+                 raise_30m=False, raise_5m=False,
+                 btc_bearish=False):
         base = closes_15m
         self.klines = {
             "15m": candles_from_closes(closes_15m, last_vol_mult=2.0),
@@ -38,9 +40,12 @@ class StageMarket:
             "5m": candles_from_closes(closes_5m or base, last_vol_mult=2.0),
             "4h": candles_from_closes(closes_4h or base, last_vol_mult=2.0),
             "1h": candles_from_closes(closes_1h or base, last_vol_mult=2.0),
+            "10m": candles_from_closes(closes_10m or base, last_vol_mult=2.0),
+            "1m": candles_from_closes(closes_1m or base, last_vol_mult=2.0),
         }
         self.volume = volume
         self.raise_30m = raise_30m
+        self.raise_5m = raise_5m
         self.btc_bearish = btc_bearish
         self.volume_calls = 0
         self.tickers_calls = 0
@@ -50,6 +55,8 @@ class StageMarket:
             return candles_from_closes(_downtrend(), last_vol_mult=2.0)
         if interval == "30m" and self.raise_30m:
             raise RuntimeError("30m exploded")
+        if interval == "5m" and self.raise_5m:
+            raise RuntimeError("5m exploded")
         return self.klines[interval]
 
     def get_live_price(self, symbol):
@@ -137,14 +144,14 @@ def test_prefilter_rejects_weak_strength(monkeypatch):
 # ------------------------------------------------------------ stage 2 ------
 def test_prefilter_rejects_mtf_misaligned():
     c = uptrend(220)
-    m = StageMarket(c, closes_1h=_downtrend())  # 1h disagrees
+    m = StageMarket(c, closes_5m=_downtrend())  # 5m disagrees
     ok, reason = prefilter_symbol("TESTUSDT", m, tickers=None)
     assert ok is False
     assert "MTF tak selaras" in reason
 
 
-def test_prefilter_30m_error_fail_closed():
-    m = _bull_market(raise_30m=True)
+def test_prefilter_5m_error_fail_closed():
+    m = _bull_market(raise_5m=True)
     ok, reason = prefilter_symbol("TESTUSDT", m, tickers=None)
     assert ok is False
     assert "fail-closed" in reason
@@ -177,7 +184,7 @@ def test_prefilter_false_implies_engine_rejects(scenario, monkeypatch):
     elif scenario == "nosetup":
         m = StageMarket([100.0] * 220)
     elif scenario == "mtf_bad":
-        m = StageMarket(uptrend(220), closes_1h=_downtrend())
+        m = StageMarket(uptrend(220), closes_5m=_downtrend())
     elif scenario == "bullish_only_bear":
         monkeypatch.setattr(config, "BULLISH_ONLY", True)
         m = StageMarket(_downtrend())

@@ -58,7 +58,8 @@ _OKX_INTERVAL = {
     "1h": "1H", "2h": "2H", "4h": "4H", "1d": "1Dutc",
 }  # GAS: okxInterval_ (L667)
 _INTERVAL_MS = {
-    "1m": 60000, "3m": 180000, "5m": 300000, "15m": 900000,
+    "1m": 60000, "3m": 180000, "5m": 300000, "10m": 600000,
+    "15m": 900000,
     "30m": 1800000, "1h": 3600000, "2h": 7200000, "4h": 14400000,
     "1d": 86400000,
 }  # GAS: intervalToMs_ (L682)
@@ -213,6 +214,30 @@ def _short_err(exc: BaseException) -> str:
     return s[:80] if s else type(exc).__name__
 
 
+def _aggregate_10m(candles_5m: list) -> list:
+    """Aggregate 5m candles into 10m candles (2x5m -> 1x10m).
+
+    No venue offers 10m; synthesis from 5m is standard. Candles are
+    oldest-first; pairs (0,1), (2,3), ... A trailing incomplete pair
+    is dropped (fail-closed: never invent a candle).
+    """
+    out = []
+    n = len(candles_5m) - (len(candles_5m) % 2)
+    for i in range(0, n, 2):
+        a, b = candles_5m[i], candles_5m[i + 1]
+        out.append({
+            "open_time": a["open_time"],
+            "open": a["open"],
+            "high": max(a["high"], b["high"]),
+            "low": min(a["low"], b["low"]),
+            "close": b["close"],
+            "volume": a.get("volume", 0) + b.get("volume", 0),
+            "close_time": b["close_time"],
+            "source": str(a.get("source", "")) + "+10m",
+        })
+    return out
+
+
 class MarketData:
     def __init__(self, session: requests.Session | None = None):
         self.session = session or httputil.ThrottledSession()
@@ -254,7 +279,13 @@ class MarketData:
         hit = self._klines_cache.get(key)
         if hit and time.time() - hit[0] < self._klines_ttl(interval):
             return hit[1]
-        candles = self._klines_with_fallback(symbol, interval, limit)
+        if interval == "10m":
+            # No venue offers 10m — synthesize from 5m
+            # (flex MTF spec 2026-10-19). The 5m leg reuses the cache.
+            c5 = self.get_klines(symbol, "5m", limit * 2 + 2)
+            candles = _aggregate_10m(c5)
+        else:
+            candles = self._klines_with_fallback(symbol, interval, limit)
         if len(candles) < min(MIN_CANDLES, limit):
             raise RuntimeError(
                 f"klines: only {len(candles)} candles for "
