@@ -449,7 +449,7 @@ def test_mtf_exception_rejected():
     m = FakeMarket(bullish=True)
 
     def klines(symbol, interval, limit=220):
-        if interval == "5m":
+        if interval == "1h":
             raise RuntimeError("provider timeout")
         return m.klines[interval]
 
@@ -650,9 +650,9 @@ def test_biasa_mode_requires_mtf(_mode):
     assert "BIASA PASS" in note
     assert signal["direction"] == "LONG"
     assert "MTF selaras" in note
-    # MTF rusak (5m flat -> neutral): biasa ikut reject seperti sedang/ketat
+    # MTF rusak (1h flat -> neutral): biasa ikut reject seperti sedang/ketat
     m2 = FakeMarket(bullish=True)
-    m2.klines["5m"] = candles_from_closes([100.0] * 220)
+    m2.klines["1h"] = candles_from_closes([100.0] * 220)
     signal, reason = evaluate_symbol("ETHUSDT", m2)
     assert signal is None
     assert "MTF tak selaras" in reason
@@ -669,7 +669,7 @@ def test_biasa_mode_bearish_short(_mode):
 def test_sedang_rejects_mtf_misalignment(_mode):
     _mode("sedang")
     m = FakeMarket(bullish=True)
-    m.klines["5m"] = candles_from_closes([100.0] * 220)  # flat -> neutral
+    m.klines["1h"] = candles_from_closes([100.0] * 220)  # flat -> neutral
     signal, reason = evaluate_symbol("ETHUSDT", m)
     assert signal is None
     assert "MTF tak selaras" in reason
@@ -783,10 +783,10 @@ def test_mtf_alignment_check_unit():
     m = FakeMarket(bullish=True)
     ok, note = mtf_alignment_check("ETHUSDT", m, "BULLISH")
     assert ok, note
-    assert "15m/10m/5m" in note
-    m.klines["5m"] = candles_from_closes([100.0] * 220)
+    assert "15m/1h" in note
+    m.klines["1h"] = candles_from_closes([100.0] * 220)
     ok, note = mtf_alignment_check("ETHUSDT", m, "BULLISH")
-    assert not ok and "5m=neutral" in note
+    assert not ok and "1h=neutral" in note
 
 
 def test_aggregate_10m_unit():

@@ -31,7 +31,7 @@ class StageMarket:
     def __init__(self, closes_15m, closes_30m=None, closes_5m=None,
                  closes_4h=None, closes_1h=None, closes_10m=None,
                  closes_1m=None, volume=50_000_000.0,
-                 raise_30m=False, raise_5m=False,
+                 raise_30m=False, raise_5m=False, raise_1h=False,
                  btc_bearish=False):
         base = closes_15m
         self.klines = {
@@ -46,6 +46,7 @@ class StageMarket:
         self.volume = volume
         self.raise_30m = raise_30m
         self.raise_5m = raise_5m
+        self.raise_1h = raise_1h
         self.btc_bearish = btc_bearish
         self.volume_calls = 0
         self.tickers_calls = 0
@@ -57,6 +58,8 @@ class StageMarket:
             raise RuntimeError("30m exploded")
         if interval == "5m" and self.raise_5m:
             raise RuntimeError("5m exploded")
+        if interval == "1h" and self.raise_1h:
+            raise RuntimeError("1h exploded")
         return self.klines[interval]
 
     def get_live_price(self, symbol):
@@ -144,14 +147,14 @@ def test_prefilter_rejects_weak_strength(monkeypatch):
 # ------------------------------------------------------------ stage 2 ------
 def test_prefilter_rejects_mtf_misaligned():
     c = uptrend(220)
-    m = StageMarket(c, closes_5m=_downtrend())  # 5m disagrees
+    m = StageMarket(c, closes_1h=_downtrend())  # 1h disagrees
     ok, reason = prefilter_symbol("TESTUSDT", m, tickers=None)
     assert ok is False
     assert "MTF tak selaras" in reason
 
 
-def test_prefilter_5m_error_fail_closed():
-    m = _bull_market(raise_5m=True)
+def test_prefilter_1h_error_fail_closed():
+    m = _bull_market(raise_1h=True)
     ok, reason = prefilter_symbol("TESTUSDT", m, tickers=None)
     assert ok is False
     assert "fail-closed" in reason
@@ -184,7 +187,7 @@ def test_prefilter_false_implies_engine_rejects(scenario, monkeypatch):
     elif scenario == "nosetup":
         m = StageMarket([100.0] * 220)
     elif scenario == "mtf_bad":
-        m = StageMarket(uptrend(220), closes_5m=_downtrend())
+        m = StageMarket(uptrend(220), closes_1h=_downtrend())
     elif scenario == "bullish_only_bear":
         monkeypatch.setattr(config, "BULLISH_ONLY", True)
         m = StageMarket(_downtrend())
