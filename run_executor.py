@@ -377,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--balance", action="store_true",
                     help="print the futures USDT balance and exit "
                          "(needs --live or --testnet keys)")
+    ap.add_argument("--quiet", action="store_true", default=False,
+                      help="quiet UI: hide INFO logs, spinner + positions/PnL only")
     ap.add_argument("--log-json", action="store_true", default=None,
                     help="emit structured JSON log lines (one object per "
                          "line, via logutil.JsonFormatter) instead of the "
