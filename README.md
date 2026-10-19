@@ -38,11 +38,66 @@ Bugfix yang ikut masuk (dari audit independen):
 
 ## Status
 
-- Test: **710 passed** (`pytest`, ~55 dtk).
+- Test: **729 passed** (`pytest`, ~52 dtk).
 - **Paper-test SEDANG BERJALAN** sejak 2026-10-19 16:28 WIB (dijalankan manual user). Evaluasi setelah ≥1 minggu (~2026-10-26).
   **Jangan jalankan `--live` sebelum paper-test selesai dan dievaluasi.**
 
 ## Menjalankan
+
+### Cara cepat: `binance-flex` (workflow launcher)
+
+Satu perintah untuk satu workflow lengkap:
+
+```bash
+./binance-flex -m 100 -l 10 isolated paper -a 20
+```
+
+Artinya: paper trading, margin $100/entry, leverage 10x, ISOLATED,
+auto-TP saat profit +20% dari margin, loop jalan terus.
+
+```
+=== BINANCE-FLEX [PAPER] ===
+  margin   : $100.00/entry
+  leverage : 10x
+  mode     : ISOLATED
+  auto TP  : +20% dari margin
+  jalan    : loop terus
+```
+
+| Argumen | Arti | Default |
+|---|---|---|
+| `-m, --margin` | margin USDT per entry | `1.0` |
+| `-l, --leverage` | leverage | `10` |
+| `-a, --auto-tp` | auto-TP saat profit +% dari margin (`0` = mati) | `20.0` |
+| `isolated` / `cross` | margin mode | `isolated` |
+| `paper` / `testnet` / `live` | mode jalan | `paper` |
+| `--once` | sekali scan lalu berhenti | (loop) |
+| `--dry-run` | tampilkan konfigurasi tanpa menjalankan | - |
+| `--yes` | lewati konfirmasi mode live | - |
+
+Contoh lain:
+
+```bash
+./binance-flex paper                              # default: $1, 10x, isolated, TP 20%
+./binance-flex -m 5 -l 5 cross testnet --once     # testnet sekali scan
+./binance-flex -m 100 -l 10 isolated paper -a 20 --dry-run  # cek dulu
+./binance-flex live --yes                         # LIVE (butuh BINANCE_LIVE_KEY/SECRET)
+```
+
+Yang dilakukan launcher:
+1. Menulis `profit_take_pct` (-a) dan `margin_mode` ke `dashboard_settings.json`
+   section mode yang dipilih — jalur resmi, executor membaca tiap cycle dan
+   dashboard ikut menampilkan. Validasi via `dashboard.validate_settings`.
+2. Membangun perintah `run_executor.py` yang sesuai lalu exec ke sana.
+
+Keamanan:
+- `-m`/`-l` adalah flag TEST ONLY milik engine: **ditolak untuk live**
+  (engine pun menolaknya). Risk live hanya via dashboard (knob tighten-only).
+- Mode live menampilkan banner merah dan wajib konfirmasi
+  (ketik `LIVE`, atau `--yes`).
+
+### Cara manual
+
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -89,6 +144,7 @@ di terminal (hijau = LONG/profit, merah = SHORT/loss), contoh:
 - `dashboard.py` — web UI monitoring & kill switch
 - `trade_kit.py` — formatter baris kit gaya scalping (dipakai executor)
 - `kit.py` — monitor terminal read-only (saldo, posisi, trade hari ini)
+- `binance-flex` — workflow launcher satu perintah (+ `tests/test_binance_flex.py`: 19 test)
 - `tests/` — 710 test
 
 ## Peringatan

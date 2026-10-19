@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""binance-flex — one-command workflow launcher for flex-bot.
+
+Menggantikan rangkaian flag run_executor.py yang panjang dengan satu
+perintah workflow:
+
+    binance-flex -m 100 -l 10 isolated paper -a 20
+
+Artinya: paper trading, margin $100/entry, leverage 10x, ISOLATED,
+auto-TP saat profit +20% dari margin, loop jalan terus.
+
+Pakai:
+    binance-flex [-m MARGIN] [-l LEVERAGE] [-a AUTO_TP_PCT]
+                 [--once] [--dry-run] [--yes]
+                 [isolated|cross] [paper|testnet|live]
+
+Contoh:
+    binance-flex -m 100 -l 10 isolated paper -a 20   # contoh user
+    binance-flex paper                              # default: $1, 10x, isolated, TP 20%
+    binance-flex -m 5 -l 5 cross testnet --once     # testnet sekali scan
+    binance-flex live --yes                         # LIVE (butuh BINANCE_LIVE_KEY/SECRET)
+
+Yang dilakukan launcher:
+  1. Tulis profit_take_pct (-a) dan margin_mode ke dashboard_settings.json
+     section mode yang dipilih (jalur resmi: executor baca tiap cycle,
+     dashboard ikut menampilkan). Validasi via dashboard.validate_settings.
+  2. Bangun perintah run_executor.py yang sesuai.
+  3. Tampilkan banner kit, lalu exec ke run_executor.py.
+
+Keamanan:
+  - -m/-l adalah flag TEST ONLY engine: DITOLAK untuk live (engine pun
+    menolaknya). Risk live hanya via dashboard (knob tighten-only).
+  - Mode live: banner merah + wajib konfirmasi (ketik LIVE / --yes).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import dashboard
+import trade_kit
+from trade_kit import paint
+
+MARGIN_MODES = ("isolated", "cross")
+RUN_MODES = ("paper", "testnet", "live")
+
+DEFAULT_MARGIN = 1.0
+DEFAULT_LEVERAGE = 10
+DEFAULT_AUTO_TP = 20.0
+
+
+def parse_specs(specs: list[str]) -> tuple[str, str]:
+    """Classify positional specs into (margin_mode, run_mode).
+
+    Order-independent: each spec must be a known margin mode or run mode,
+    at most one of each. Unknown/conflicting specs -> ValueError.
+    """
+    margin_mode, run_mode = "isolated", "paper"
+    seen_mm, seen_rm = False, False
+    for raw in specs:
+        s = raw.strip().lower()
+        if s in MARGIN_MODES:
+            if seen_mm:
+                raise ValueError(f"margin mode ganda: '{raw}'")
+            margin_mode, seen_mm = s, True
+        elif s in RUN_MODES:
+            if seen_rm:
+                raise ValueError(f"run mode ganda: '{raw}'")
+            run_mode, seen_rm = s, True
+        else:
+            raise ValueError(
+                f"spec tidak dikenal: '{raw}' "
+                f"(harus salah satu: {', '.join(MARGIN_MODES + RUN_MODES)})")
+    return margin_mode, run_mode
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="binance-flex",
+        description="One-command workflow launcher untuk flex-bot.",
+        epilog="Contoh: binance-flex -m 100 -l 10 isolated paper -a 20")
+    ap.add_argument("-m", "--margin", type=float, default=DEFAULT_MARGIN,
+                    help=f"margin USDT per entry (default {DEFAULT_MARGIN:g}; "
+                         "paper/testnet saja)")
+    ap.add_argument("-l", "--leverage", type=int, default=DEFAULT_LEVERAGE,
+                    help=f"leverage (default {DEFAULT_LEVERAGE}; "
+                         "paper/testnet saja)")
+    ap.add_argument("-a", "--auto-tp", type=float, default=DEFAULT_AUTO_TP,
+                    metavar="PCT",
+                    help=f"auto-TP saat profit +%% dari margin "
+                         f"(default {DEFAULT_AUTO_TP:g}; 0 = mati)")
+    ap.add_argument("--once", action="store_true",
+                    help="satu kali scan lalu berhenti (default: --loop)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="tampilkan konfigurasi + perintah tanpa menjalankan")
+    ap.add_argument("--yes", action="store_true",
+                    help="lewati konfirmasi mode live")
+    ap.add_argument("specs", nargs="*",
+                    help="isolated|cross dan paper|testnet|live "
+                         "(urutan bebas, default: isolated paper)")
+    return ap
+
+
+def resolve(args: argparse.Namespace) -> dict:
+    """Validate args -> resolved run config dict. Raises ValueError."""
+    margin_mode, run_mode = parse_specs(args.specs)
+    if not args.margin > 0:
+        raise ValueError("--margin harus > 0")
+    if not 1 <= args.leverage <= 125:
+        raise ValueError("--leverage harus 1-125")
+    if not 0 <= args.auto_tp <= 100:
+        raise ValueError("--auto-tp harus 0-100")
+    if run_mode == "live" and (
+            args.margin != DEFAULT_MARGIN or args.leverage != DEFAULT_LEVERAGE):
+        raise ValueError(
+            "-m/-l ditolak untuk live: flag TEST ONLY tidak berlaku di live "
+            "(engine menolaknya). Atur risk live via dashboard "
+            "(knob tighten-only).")
+    return {
+        "margin": args.margin,
+        "leverage": args.leverage,
+        "auto_tp": args.auto_tp,
+        "margin_mode": margin_mode.upper(),
+        "run_mode": run_mode,
+        "once": args.once,
+        "dry_run": args.dry_run,
+        "confirm_yes": args.yes,
+    }
+
+
+def apply_settings(cfg: dict) -> dict:
+    """Write profit_take_pct + margin_mode into the mode's settings section.
+
+    Returns the validated section that was written.
+    """
+    path = dashboard.SETTINGS_PATH
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    section = dict(data.get(cfg["run_mode"], {}) or {})
+    section["profit_take_pct"] = cfg["auto_tp"]
+    section["margin_mode"] = cfg["margin_mode"]
+    validated = dashboard.validate_settings(section)
+    data[cfg["run_mode"]] = validated
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+    return validated
+
+
+def build_command(cfg: dict) -> list[str]:
+    """Build the run_executor.py argv for the resolved config."""
+    cmd = [sys.executable, os.path.join(HERE, "run_executor.py"),
+           f"--{cfg['run_mode']}"]
+    if cfg["run_mode"] in ("paper", "testnet"):
+        cmd += ["--fixed-margin-usdt", repr(cfg["margin"]),
+                "--leverage", str(cfg["leverage"])]
+    cmd.append("--once" if cfg["once"] else "--loop")
+    return cmd
+
+
+def print_banner(cfg: dict) -> None:
+    mode = cfg["run_mode"].upper()
+    color = "red" if cfg["run_mode"] == "live" else "cyan"
+    print(paint(f"=== BINANCE-FLEX [{mode}] ===", color, "bold"),
+          paint(trade_kit.wib_str(), "dim"))
+    if cfg["run_mode"] == "live":
+        print(paint("  !! MODE LIVE — UANG ASLI !!", "red", "bold"))
+    m = cfg["margin"]
+    print(f"  margin   : ${m:,.2f}/entry"
+          + ("  (dari dashboard, tighten-only)"
+             if cfg["run_mode"] == "live" else ""))
+    lev = cfg["leverage"]
+    print(f"  leverage : {lev}x"
+          + ("  (dari dashboard, tighten-only)"
+             if cfg["run_mode"] == "live" else ""))
+    print(f"  mode     : {cfg['margin_mode']}")
+    atp = cfg["auto_tp"]
+    print(f"  auto TP  : +{atp:g}% dari margin"
+          if atp > 0 else "  auto TP  : mati")
+    print(f"  jalan    : {'sekali scan (--once)' if cfg['once'] else 'loop terus'}")
+    print(f"  setting  : profit_take_pct + margin_mode -> "
+          f"dashboard_settings.json [{cfg['run_mode']}]")
+
+
+def confirm_live(cfg: dict) -> None:
+    if cfg["run_mode"] != "live" or cfg["confirm_yes"]:
+        return
+    if not sys.stdin.isatty():
+        raise ValueError(
+            "mode live tanpa --yes butuh terminal interaktif untuk konfirmasi")
+    ans = input(paint("Ketik LIVE untuk lanjut dengan UANG ASLI: ",
+                      "red", "bold"))
+    if ans.strip() != "LIVE":
+        raise ValueError("dibatalkan user")
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        cfg = resolve(args)
+        confirm_live(cfg)
+    except ValueError as e:
+        print(paint(f"binance-flex: {e}", "red", "bold"), file=sys.stderr)
+        return 2
+    if not cfg["dry_run"]:
+        apply_settings(cfg)
+    print_banner(cfg)
+    cmd = build_command(cfg)
+    print(paint("  exec     : " + " ".join(cmd[1:]), "dim"))
+    if cfg["dry_run"]:
+        print(paint("  (dry-run: tidak dijalankan, setting tidak diubah)",
+                    "yellow"))
+        return 0
+    # Flush: execvpe mengganti proses tanpa flush buffer stdio — tanpa ini
+    # banner hilang saat output di-pipe.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execvpe(cmd[0], cmd, os.environ)
+    return 0  # pragma: no cover - execvpe tidak kembali
+
+
+if __name__ == "__main__":
+    sys.exit(main())
