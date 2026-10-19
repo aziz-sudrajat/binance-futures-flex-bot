@@ -142,6 +142,9 @@ def build(args, env: dict | None = None):
     elif args.paper:
         state_path, life_path = (config.EXEC_PAPER_STATE_FILE,
                                  config.EXEC_PAPER_LIFECYCLE_FILE)
+    elif args.testnet:
+        state_path, life_path = (config.EXEC_TESTNET_STATE_FILE,
+                                 config.EXEC_TESTNET_LIFECYCLE_FILE)
     else:
         state_path, life_path = config.EXEC_STATE_FILE, config.EXEC_LIFECYCLE_FILE
     state = StateStore(state_path)

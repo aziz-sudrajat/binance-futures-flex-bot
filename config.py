@@ -348,6 +348,10 @@ EXEC_LIFECYCLE_FILE = "lifecycle.jsonl"
 # contaminate (or be mistaken for) testnet position history.
 EXEC_PAPER_STATE_FILE = "state-paper.json"
 EXEC_PAPER_LIFECYCLE_FILE = "lifecycle-paper.jsonl"
+# Testnet mode uses SEPARATE state files so testnet trades can never
+# contaminate (or be mistaken for) paper/default position history.
+EXEC_TESTNET_STATE_FILE = "state-testnet.json"
+EXEC_TESTNET_LIFECYCLE_FILE = "lifecycle-testnet.jsonl"
 # Dashboard settings (written by dashboard.py, honored by the executor).
 # Missing file -> built-in defaults (current behavior, auto-trade ON).
 DASHBOARD_SETTINGS_FILE = "dashboard_settings.json"
