@@ -105,7 +105,7 @@ MTF_CASCADE_BOOST = 8
 # Signals below the CONFIDENCE_THRESHOLD are NOT auto-traded. Use as a
 # soft gate: 90-100 = highest quality, 75-89 = good, 60-74 = moderate.
 CONFIDENCE_THRESHOLD_STRONG = 80  # auto-trade
-CONFIDENCE_THRESHOLD_MODERATE = 65  # review, auto-trade if market conditions
+CONFIDENCE_THRESHOLD_MODERATE = 50  # review, auto-trade if market conditions (lowered 2026-10-19 per user: allow more trades)
                                     # support (volume > 2x, no news risk, etc.)
 
 # Signal TTL — default 30 min. Signals older than TTL_SECC are decayed.
