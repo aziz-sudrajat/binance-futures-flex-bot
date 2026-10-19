@@ -409,9 +409,14 @@ def test_freshness_live_price_below_zone_accepts():
     assert signal["live_price"] == pytest.approx(m.live_price)
 
 
-def test_derivatives_total_failure_held():
+def test_derivatives_total_failure_held(monkeypatch):
     # T2 (audit D4/H6): snapshot with no usable components -> HOLD,
     # never auto-neutralized to score 50 and passed.
+    # FLEX: derivatives check is OFF by default (user 2026-10-19), so
+    # explicitly re-enable it here to prove the fail-closed logic works.
+    import config
+    monkeypatch.setattr(config, "DERIV_REQUIRED_COMPONENTS",
+                        ("funding", "open_interest"))
     m = _benign_4h_for_sr(FakeMarket(bullish=True))
     m.get_derivatives_snapshot = lambda s, period="4h": {
         "symbol": s, "provider": "none",

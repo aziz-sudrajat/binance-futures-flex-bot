@@ -75,7 +75,7 @@ TP1_RR = 1.50                   # GAS: CFG.TP1_RR (L126)
 TP2_RR = 2.25                   # GAS: CFG.TP2_RR (L127)
 TP3_RR = 3.00                   # GAS: CFG.TP3_RR (L128)
 FRESHNESS_MAX_DRIFT_PCT = 1.0   # FLEX: loosened from 0.4
-MIN_24H_VOLUME_USD = 2_000_000  # GAS: CFG.MIN_24H_VOLUME_USD (L100)
+MIN_24H_VOLUME_USD = 1_000_000  # FLEX (user 2026-10-19): 1jt aja
 
 # ------------------------- PREFILTER (cheap pre-screen) settings
 # Optional prefilter "pre-screens" (not engine correctness): cheap, fast,
@@ -171,7 +171,7 @@ DERIV_COMPONENT_KEYS = {       # logical name -> get_derivatives_snapshot() key
     "long_short": "aggregate_long",
     "taker_volume": "taker_buy_sell_ratio",
 }
-DERIV_REQUIRED_COMPONENTS = ("funding", "open_interest")
+DERIV_REQUIRED_COMPONENTS = ()  # FLEX (user 2026-10-19): no.7 off
 DERIV_OPTIONAL_COMPONENTS = ("long_short", "taker_volume")
 
 # -------------------------------- deterministic vetoes (ROADMAP ITEM 2)
@@ -609,7 +609,8 @@ DASH_MTF_MODES = ("STRICT", "LEAN")
 # Disabling a veto is an explicit operator choice and is logged as such.
 DASH_VETO_CODES = ("leverage_risk", "funding", "squeeze", "whale",
                    "liq_wall", "btc_breaker", "sr_zone", "funding_window",
-                   "volatility_shock", "trend_strength")
+                   "volatility_shock", "trend_strength",
+                   "adv_deriv", "cvd_imbalance", "oi_flush")
 # Signal strictness presets: ketat | sedang | biasa.
 # Choosing a mode applies its bundle to the individual dashboard settings
 # (quality gate, MTF 30m leg, 1d cascade leg, bullish-only, volume gate,
@@ -643,18 +644,21 @@ SIGNAL_MODE_PRESETS = {
         "liq_review": False,
         "whale_review": False,
         "bullish_only": False,
-        "min_24h_volume_usd": 2_000_000.0,
+        "min_24h_volume_usd": 1_000_000.0,
         "freshness_max_drift_pct": 1.0,
-        "veto_leverage_risk": True,
-        "veto_funding": True,
-        "veto_squeeze": True,
-        "veto_whale": True,
-        "veto_liq_wall": True,
-        "veto_btc_breaker": True,
-        "veto_sr_zone": True,
-        "veto_funding_window": True,
-        "veto_volatility_shock": True,
-        "veto_trend_strength": True,
+        "veto_leverage_risk": False,
+        "veto_funding": False,
+        "veto_squeeze": False,
+        "veto_whale": False,
+        "veto_liq_wall": False,
+        "veto_btc_breaker": False,
+        "veto_sr_zone": False,
+        "veto_funding_window": False,
+        "veto_volatility_shock": False,
+        "veto_trend_strength": False,
+    "veto_adv_deriv": False,
+    "veto_cvd_imbalance": False,
+    "veto_oi_flush": False,
     },
     "sedang": {
         "min_quality_score": 55,
@@ -703,11 +707,20 @@ SIGNAL_MODE_PRESETS = {
         "veto_funding_window": False,
         "veto_volatility_shock": False,
         "veto_trend_strength": False,
+    "veto_adv_deriv": False,
+    "veto_cvd_imbalance": False,
+    "veto_oi_flush": False,
     },
 }
 # Vetoes currently disabled by the dashboard (populated by
 # apply_dashboard_overrides; read by vetoes.run_vetoes).
-DISABLED_VETOES = frozenset()
+# FLEX (user 2026-10-19): no.8 — semua veto OFF
+DISABLED_VETOES = frozenset({
+    "btc_breaker", "adv_deriv", "leverage_risk", "funding",
+    "squeeze", "whale", "liq_wall", "sr_zone", "cvd_imbalance",
+    "oi_flush", "funding_window", "volatility_shock",
+    "trend_strength",
+})
 
 # Canonical dashboard defaults — single source of truth for dashboard.py,
 # executor.py and validation. Risk knobs (auto_trade, risk_pct, leverage,
@@ -728,7 +741,7 @@ DASHBOARD_DEFAULTS = {
     # signal
     "signal_mode": "ketat",  # ketat | sedang | biasa (preset bundle)
     "min_quality_score": 60,
-    "min_24h_volume_usd": 2_000_000.0,
+    "min_24h_volume_usd": 1_000_000.0,
     "freshness_max_drift_pct": 1.0,
     # WS price feed (item 2.5): prefer OKX WS ticker cache for the
     # freshness re-check; REST stays as automatic fallback.
@@ -767,16 +780,19 @@ DASHBOARD_DEFAULTS = {
     "breakeven_after_tp1": True,
     "lock_profit_after_tp2": True,
     # vetoes (True = enabled)
-    "veto_leverage_risk": True,
-    "veto_funding": True,
-    "veto_squeeze": True,
-    "veto_whale": True,
-    "veto_liq_wall": True,
-    "veto_btc_breaker": True,
-    "veto_sr_zone": True,       # S/R location: no short into 4h support / long into 4h resistance
-    "veto_funding_window": True,
-    "veto_volatility_shock": True,
-    "veto_trend_strength": True,
+    "veto_leverage_risk": False,
+    "veto_funding": False,
+    "veto_squeeze": False,
+    "veto_whale": False,
+    "veto_liq_wall": False,
+    "veto_btc_breaker": False,
+    "veto_sr_zone": False,       # S/R location: no short into 4h support / long into 4h resistance
+    "veto_funding_window": False,
+    "veto_volatility_shock": False,
+    "veto_trend_strength": False,
+    "veto_adv_deriv": False,
+    "veto_cvd_imbalance": False,
+    "veto_oi_flush": False,
     # universe
     "universe_mode": "top_movers",  # curated | top_volume | top_movers | all (GAS parity: top_movers)
     "universe_top_n": 30,        # 10-100, used when top_volume/top_movers

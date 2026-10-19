@@ -230,12 +230,20 @@ def test_apply_tp_split_normalized(dash_env):
 
 
 def test_apply_veto_toggles(dash_env):
-    save_settings({"veto_funding": False, "veto_whale": False}, dash_env)
+    # FLEX: vetoes OFF by default (user 2026-10-19). Explicitly enable
+    # two to prove the toggle mechanism works both ways.
+    save_settings({"veto_funding": True, "veto_whale": True}, dash_env)
     import executor as exmod
     e = object.__new__(exmod.Executor)
     e.settings_mode = "live"
     config.apply_dashboard_overrides(e._dash_settings())
-    assert config.DISABLED_VETOES == frozenset({"funding", "whale"})
+    assert "funding" not in config.DISABLED_VETOES
+    assert "whale" not in config.DISABLED_VETOES
+    # And disabling explicitly works.
+    save_settings({"veto_funding": False, "veto_squeeze": False}, dash_env)
+    config.apply_dashboard_overrides(e._dash_settings())
+    assert "funding" in config.DISABLED_VETOES
+    assert "squeeze" in config.DISABLED_VETOES
 
 
 def test_apply_mtf_and_bools(dash_env):
@@ -465,7 +473,8 @@ def test_defaults_have_ui_fields():
     presets) and are the only documented exceptions.
     """
     PRESET_BUNDLED = {"mtf_require_1h", "btc_align_required", "pattern_required",
-                      "news_check", "liq_review", "whale_review"}
+                      "news_check", "liq_review", "whale_review",
+                      "veto_adv_deriv", "veto_cvd_imbalance", "veto_oi_flush"}
     # The allowlist must stay honest: every bundled key really is bundled.
     for k in PRESET_BUNDLED:
         assert any(k in bundle for bundle in

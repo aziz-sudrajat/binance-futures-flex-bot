@@ -51,6 +51,7 @@ from config import (
     MARKET_DATA_FALLBACK_BINANCE,
     MIN_CANDLES,
     ORDER_BOOK_DEPTH_LIMIT,
+    STABLECOINS,
 )
 
 _OKX_INTERVAL = {
@@ -279,6 +280,10 @@ class MarketData:
         hit = self._klines_cache.get(key)
         if hit and time.time() - hit[0] < self._klines_ttl(interval):
             return hit[1]
+        # Bare stablecoins (e.g. "USDT") are not futures contracts —
+        # fail fast with NO warnings (user spec 2026-10-19).
+        if symbol.upper() in STABLECOINS:
+            raise RuntimeError(f"{symbol} is not a tradable futures contract")
         if interval == "10m":
             # No venue offers 10m — synthesize from 5m
             # (flex MTF spec 2026-10-19). The 5m leg reuses the cache.

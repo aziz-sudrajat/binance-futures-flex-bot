@@ -40,6 +40,20 @@ class _NoNetworkFeed:
 
 
 @pytest.fixture(autouse=True)
+def _veto_flags_enabled(monkeypatch):
+    """Veto unit tests verify veto LOGIC — they need the flags on.
+
+    FLEX default is OFF (user 2026-10-19); apply_dashboard_overrides in
+    other tests would otherwise leave them off and break veto logic tests.
+    Tests for the new default set flags explicitly.
+    """
+    monkeypatch.setattr(config, "FUNDING_PROXIMITY_VETO_ENABLED", True)
+    monkeypatch.setattr(config, "VOLATILITY_SHOCK_VETO_ENABLED", True)
+    monkeypatch.setattr(config, "TREND_STRENGTH_VETO_ENABLED", True)
+    monkeypatch.setattr(config, "DISABLED_VETOES", frozenset())
+
+
+@pytest.fixture(autouse=True)
 def _ws_price_feed_disabled(monkeypatch, request):
     monkeypatch.setattr(config, "WS_PRICE_FEED_ENABLED", False)
     import wsfeed

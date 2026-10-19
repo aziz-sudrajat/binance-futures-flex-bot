@@ -292,7 +292,8 @@ def select_top_movers(tickers: list[dict], n: int,
         if is_junk_symbol(sym):
             continue
         base = str(t.get("base") or "")
-        if base in stables:
+        # Bare stablecoin symbols (e.g. "USDT") are not futures contracts.
+        if base in stables or sym.upper() in stables or not base:
             continue
         vol = float(t.get("vol_usd_24h") or 0)
         if vol < min_vol_usd:
