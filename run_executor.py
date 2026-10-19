@@ -97,12 +97,12 @@ def require_live_keys(env: dict | None = None) -> tuple[str, str]:
 
 
 def _refuse_live_test_params(args) -> None:
-    """Hard refusal: TEST ONLY knobs must never reach real-money trading."""
+    """Refuse TEST ONLY knobs that must never reach real-money trading.
+
+    (user 2026-10-19): --fixed-margin-usdt and --leverage ARE allowed
+    for live now — margin/leverage terserah user.
+    """
     offenders = []
-    if args.fixed_margin_usdt is not None:
-        offenders.append("--fixed-margin-usdt")
-    if args.leverage is not None:
-        offenders.append("--leverage")
     if args.leverage_tiers:
         offenders.append("--leverage-tiers")
     if args.leverage_default is not None:
@@ -113,8 +113,7 @@ def _refuse_live_test_params(args) -> None:
         raise SystemExit(
             "ERROR: --live refuses TEST ONLY flags: "
             + ", ".join(offenders) + ".\n"
-            "Live trading always uses the production risk defaults "
-            "(RISK_PCT_PER_TRADE, MAX_LEVERAGE) and real STRICT signals only. "
+            "Live trading uses real STRICT signals only. "
             "For full order control (fixed leverage/entry, margin mode) use "
             "the dashboard Order settings instead.")
 

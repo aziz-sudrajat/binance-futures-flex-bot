@@ -80,13 +80,13 @@ class TestResolve:
         with pytest.raises(ValueError):
             bf.resolve(_args(auto_tp=150))
 
-    def test_live_refuses_margin_override(self):
-        with pytest.raises(ValueError):
-            bf.resolve(_args(margin=100.0, specs=["live"]))
+    def test_live_accepts_margin_override(self):
+        cfg = bf.resolve(_args(margin=100.0, specs=["live"]))
+        assert cfg["margin"] == 100.0
 
-    def test_live_refuses_leverage_override(self):
-        with pytest.raises(ValueError):
-            bf.resolve(_args(leverage=20, specs=["live"]))
+    def test_live_accepts_leverage_override(self):
+        cfg = bf.resolve(_args(leverage=20, specs=["live"]))
+        assert cfg["leverage"] == 20
 
     def test_live_defaults_ok(self):
         cfg = bf.resolve(_args(specs=["live"], auto_tp=20.0))

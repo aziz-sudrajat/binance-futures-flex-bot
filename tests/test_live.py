@@ -59,8 +59,7 @@ def test_build_live_refuses_without_keys(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------- TEST ONLY flag refusals
-@pytest.mark.parametrize("flag", ["fixed_margin_usdt", "leverage",
-                                   "leverage_default", "manual"])
+@pytest.mark.parametrize("flag", ["leverage_default", "manual"])
 def test_build_live_refuses_test_only_flags(flag, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "EXEC_LIVE_STATE_FILE",
                         str(tmp_path / "state-live.json"))
@@ -71,6 +70,17 @@ def test_build_live_refuses_test_only_flags(flag, tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as ei:
         build(_args(**{flag: val}), env=dict(LIVE_ENV))
     assert "TEST ONLY" in str(ei.value)
+
+
+@pytest.mark.parametrize("flag", ["fixed_margin_usdt", "leverage"])
+def test_build_live_accepts_margin_and_leverage(flag, tmp_path, monkeypatch):
+    """user 2026-10-19: margin/leverage terserah user, incl. live."""
+    monkeypatch.setattr(config, "EXEC_LIVE_STATE_FILE",
+                        str(tmp_path / "state-live.json"))
+    monkeypatch.setattr(config, "EXEC_LIVE_LIFECYCLE_FILE",
+                        str(tmp_path / "lifecycle-live.jsonl"))
+    # Must NOT raise SystemExit for these flags anymore.
+    build(_args(**{flag: 10}), env=dict(LIVE_ENV))
 
 
 def test_build_live_refuses_leverage_tiers(tmp_path, monkeypatch):

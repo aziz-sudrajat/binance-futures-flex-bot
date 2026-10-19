@@ -88,10 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Contoh: binance-flex -m 100 -l 10 isolated paper -a 20")
     ap.add_argument("-m", "--margin", type=float, default=DEFAULT_MARGIN,
                     help=f"margin USDT per entry (default {DEFAULT_MARGIN:g}; "
-                         "paper/testnet saja)")
+                         "berlaku semua mode)")
     ap.add_argument("-l", "--leverage", type=int, default=DEFAULT_LEVERAGE,
                     help=f"leverage (default {DEFAULT_LEVERAGE}; "
-                         "paper/testnet saja)")
+                         "berlaku semua mode)")
     ap.add_argument("-a", "--auto-tp", type=float, default=DEFAULT_AUTO_TP,
                     metavar="PCT",
                     help=f"auto-TP saat profit +%% dari margin "
@@ -119,12 +119,6 @@ def resolve(args: argparse.Namespace) -> dict:
         raise ValueError("--leverage harus 1-125")
     if not 0 <= args.auto_tp <= 100:
         raise ValueError("--auto-tp harus 0-100")
-    if run_mode == "live" and (
-            args.margin != DEFAULT_MARGIN or args.leverage != DEFAULT_LEVERAGE):
-        raise ValueError(
-            "-m/-l ditolak untuk live: flag TEST ONLY tidak berlaku di live "
-            "(engine menolaknya). Atur risk live via dashboard "
-            "(knob tighten-only).")
     return {
         "margin": args.margin,
         "leverage": args.leverage,
