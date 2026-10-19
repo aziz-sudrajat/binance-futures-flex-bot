@@ -28,7 +28,7 @@ ekspektasi per trade positif**, bukan jumlah sinyal.
 | SR zone ATR mult | 2,0 | **1,5** |
 | News/liq/whale review (preset ketat) | on | **off** |
 | Preset sedang quality | 60 | **55** |
-| Confidence gate | tidak dipakai eksekusi | **≥ 65 ditolak** (K1 fix) |
+| Confidence gate | tidak dipakai eksekusi | **confidence < 65 ditolak** (K1 fix) |
 
 Bugfix yang ikut masuk (dari audit independen):
 - **C1**: `apply_dashboard_overrides` sekarang meng-int-kan knob integer
@@ -38,9 +38,9 @@ Bugfix yang ikut masuk (dari audit independen):
 
 ## Status
 
-- Test: **700 passed, 1 skipped** (`pytest`, ~59 dtk).
-- **Paper-test WAJIB minimal 1 minggu sebelum live.** Jangan jalankan `--live`
-  sebelum paper-test selesai dan dievaluasi.
+- Test: **710 passed** (`pytest`, ~55 dtk).
+- **Paper-test SEDANG BERJALAN** sejak 2026-10-19 16:28 WIB (dijalankan manual user). Evaluasi setelah ≥1 minggu (~2026-10-26).
+  **Jangan jalankan `--live` sebelum paper-test selesai dan dievaluasi.**
 
 ## Menjalankan
 
@@ -62,6 +62,24 @@ dari margin, SL ATR 1,5–3,0x. Jangan ubah risk tanpa paham konsekuensinya.
 Dashboard (opsional): `python dashboard.py` → http://localhost:8080
 (toggle auto-trade, knob hanya bisa *mengetatkan*, tidak melonggarkan).
 
+Monitor trading kit (gaya azzx-fast-scalping, read-only):
+```bash
+.venv/bin/python kit.py              # ringkasan paper: saldo, posisi terbuka,
+                                     # trade yang ditutup hari ini + win rate
+.venv/bin/python kit.py --mode live  # baca state live
+```
+Contoh baris posisi:
+```
+tgl                 | symbol    | side | entry     | margin | lev | TP        | SL
+2026-10-19 16:35:01 | BTCUSDT   | LONG | 82,800.50 | $1.00  | 10x | 84,456.50 | 81,500.00
+```
+Setiap posisi dibuka/ditutup, executor juga mencetak satu baris kit berwarna
+di terminal (hijau = LONG/profit, merah = SHORT/loss), contoh:
+```
+2026-10-19 16:35:01 | OPEN LONG BTCUSDT @ 82,800.50 | margin $1.00 | lev 10x | TP 84,456.50 | SL 81,500.00
+2026-10-19 17:02:44 | CLOSE LONG BTCUSDT | entry 82,800.50 | exit 84,460.00 | PnL +$0.21 [TP]
+```
+
 ## Struktur
 
 - `config.py` — semua knob (preset biasa/sedang/ketat + adaptif)
@@ -69,7 +87,9 @@ Dashboard (opsional): `python dashboard.py` → http://localhost:8080
 - `executor.py` — eksekusi order, write-ahead + tri-state anti double-entry
 - `vetoes.py`, `quality_deltas.py` — 6 veto + delta kualitas adaptif
 - `dashboard.py` — web UI monitoring & kill switch
-- `tests/` — 700 test
+- `trade_kit.py` — formatter baris kit gaya scalping (dipakai executor)
+- `kit.py` — monitor terminal read-only (saldo, posisi, trade hari ini)
+- `tests/` — 710 test
 
 ## Peringatan
 

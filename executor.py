@@ -54,6 +54,10 @@ import threading
 import time
 
 import config
+try:
+    import trade_kit  # scalping-style terminal kit lines (display only)
+except ImportError:  # pragma: no cover - display must never break trading
+    trade_kit = None
 import wsfeed
 from exchange import OrderNotFound
 from lifecycle import LifecycleLogger
@@ -1249,6 +1253,8 @@ class Executor:
                 pos["brackets_placed"] = True
                 self.lifecycle.log(sid, symbol, POSITION_OPENED,
                                    qty=pos["qty"], entry=fill_px)
+                if trade_kit is not None:
+                    trade_kit.print_open(pos, fill_px)
                 self.state.save()
                 return True
             # Bracket placement failed: keep retrying each scan (fail-safe,
@@ -1415,6 +1421,8 @@ class Executor:
             pos["brackets_placed"] = True
             self.lifecycle.log(sid, symbol, POSITION_OPENED,
                                qty=filled_qty, entry=fill_px)
+            if trade_kit is not None:
+                trade_kit.print_open(pos, fill_px)
         else:
             # Brackets failed: _check_entry_fill retries next cycle; the
             # CANCELED+executedQty path above re-adopts instead of closing.
@@ -2048,6 +2056,8 @@ class Executor:
                            reason=(reason if done else
                                    f"{reason} (partial fill, "
                                    f"{remaining:g} remaining)"))
+        if done and trade_kit is not None:
+            trade_kit.print_close(pos, fill_px, net, reason)
         summary["managed"] += 1
         self.state.save()
         log.info("%s %s closed @ %s (pnl %+0.2f)%s", pos_id, closed_reason,
