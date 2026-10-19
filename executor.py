@@ -245,17 +245,52 @@ def split_tp_qty(qty: float, step: float, min_qty: float,
     return merged, f"tp splits {merged}"
 
 
+def is_junk_symbol(symbol: str) -> bool:
+    """True for symbols that should never be trade candidates.
+
+    Junk = non-ASCII names (e.g. \u9f99\u867eUSDT), leveraged tokens
+    (BTCUP, ETHDOWN, *BULL/*BEAR, *2L/*2S/*3L/*3S). Legit memes
+    (DOGE/SHIB/PEPE in config.COIN_CAT_MEME) are NOT junk.
+    """
+    import re
+    s = str(symbol or "").upper()
+    if not s or not s.isascii():
+        return True
+    base = s[:-4] if s.endswith("USDT") else s
+    if re.search(r"(UP|DOWN|BULL|BEAR|[23][LS])$", base):
+        return True
+    return False
+
+
+def coin_category(base: str) -> str:
+    """Category for universe prioritization (user spec 2026-10-19)."""
+    b = str(base or "").upper()
+    if b in config.COIN_CAT_L1L2:
+        return "L1L2"
+    if b in config.COIN_CAT_DEFI:
+        return "DEFI"
+    if b in config.COIN_CAT_MEME:
+        return "MEME"
+    return "OTHER"
+
+
 def select_top_movers(tickers: list[dict], n: int,
                       min_vol_usd: float) -> list[str]:
     """GAS parity: getTopMovers_ — top-N by |24h %| * log10(24h USD vol).
 
     Stablecoins are never candidates (GAS CFG STABLECOINS); quiet coins
-    below min_vol_usd are cut. Returns Binance-style symbols, best first.
+    below min_vol_usd are cut. Junk symbols (non-ASCII, leveraged tokens)
+    are filtered. Ranking prioritizes L1/L2 first, then DeFi, then legit
+    memes, then others (user spec 2026-10-19) — within each category the
+    volatility score decides. Returns Binance-style symbols, best first.
     """
     import math
     stables = set(config.STABLECOINS)
     scored = []
     for t in tickers or []:
+        sym = str(t.get("symbol") or "")
+        if is_junk_symbol(sym):
+            continue
         base = str(t.get("base") or "")
         if base in stables:
             continue
@@ -263,8 +298,11 @@ def select_top_movers(tickers: list[dict], n: int,
         if vol < min_vol_usd:
             continue
         chg = abs(float(t.get("chg_pct_24h") or 0))
-        scored.append((chg * math.log10(vol + 1), t.get("symbol")))
-    scored.sort(key=lambda x: x[0], reverse=True)
+        vol_score = chg * math.log10(vol + 1)
+        prio = config.COIN_CAT_PRIORITY[coin_category(base)]
+        # Category first, volatility score second (negative for desc sort).
+        scored.append(((prio, -vol_score), sym))
+    scored.sort(key=lambda x: x[0])
     return [s for _, s in scored[:max(1, n)]]
 
 

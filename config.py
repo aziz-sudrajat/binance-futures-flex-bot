@@ -416,6 +416,25 @@ UNIVERSE = [
 ]
 UNIVERSE_TOP_N_DEFAULT = 30
 UNIVERSE_TOP_N_MAX = 100
+# Coin categories for universe prioritization (user spec 2026-10-19):
+# L1/L2 first, then DeFi/established alts, then legit memes.
+# Junk (non-ASCII names like 龙虾USDT, leveraged tokens) is filtered out
+# in executor.select_top_movers — legit memes (DOGE/SHIB/PEPE) stay.
+COIN_CAT_L1L2 = frozenset({
+    "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "AVAX", "TON", "TRX", "DOT",
+    "POL", "LTC", "BCH", "NEAR", "ATOM", "ETC", "FIL", "APT", "SUI", "SEI",
+    "TIA", "HBAR", "VET", "AR", "STX", "ARB", "OP", "IMX",
+})
+COIN_CAT_DEFI = frozenset({
+    "UNI", "AAVE", "MKR", "LDO", "SNX", "CRV", "JUP", "INJ", "LINK", "GRT",
+    "ONDO", "FET", "RENDER", "TAO",
+})
+COIN_CAT_MEME = frozenset({
+    # Legit memes with real liquidity/fundamentals only.
+    "DOGE", "SHIB", "PEPE", "BONK", "WIF", "FLOKI",
+})
+# Category priority for universe ranking (lower = higher priority).
+COIN_CAT_PRIORITY = {"L1L2": 0, "DEFI": 1, "MEME": 2, "OTHER": 3}
 # GAS CFG L114: stablecoins never become signal candidates.
 STABLECOINS = ["USDT", "USDC", "DAI", "USDG", "FDUSD", "TUSD", "USDP",
                "PYUSD", "USDE", "USTC", "LUSD", "FRAX", "GUSD", "BUSD",

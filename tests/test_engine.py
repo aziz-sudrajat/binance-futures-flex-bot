@@ -789,6 +789,56 @@ def test_mtf_alignment_check_unit():
     assert not ok and "1h=neutral" in note
 
 
+def test_is_junk_symbol():
+    from executor import is_junk_symbol
+    assert is_junk_symbol("龙虾USDT")
+    assert is_junk_symbol("我踏马来了USDT")
+    assert is_junk_symbol("BTCUPUSDT")
+    assert is_junk_symbol("ETHDOWNUSDT")
+    assert is_junk_symbol("ETH2LUSDT")
+    assert is_junk_symbol("BTC3SUSDT")
+    assert is_junk_symbol("SOLBULLUSDT")
+    # legit coins are NOT junk — including legit memes
+    assert not is_junk_symbol("BTCUSDT")
+    assert not is_junk_symbol("DOGEUSDT")
+    assert not is_junk_symbol("PEPEUSDT")
+    assert not is_junk_symbol("SHIBUSDT")
+    assert not is_junk_symbol("SOLUSDT")
+
+
+def test_coin_category():
+    from executor import coin_category
+    assert coin_category("BTC") == "L1L2"
+    assert coin_category("ARB") == "L1L2"
+    assert coin_category("UNI") == "DEFI"
+    assert coin_category("DOGE") == "MEME"
+    assert coin_category("PEPE") == "MEME"
+    assert coin_category("XYZNEW") == "OTHER"
+
+
+def test_select_top_movers_filters_junk_and_prioritizes():
+    from executor import select_top_movers
+    tickers = [
+        # junk with huge volatility — must be excluded
+        {"symbol": "龙虾USDT", "base": "龙虾", "vol_usd_24h": 50_000_000,
+         "chg_pct_24h": 40.0},
+        {"symbol": "BTCUPUSDT", "base": "BTCUP", "vol_usd_24h": 50_000_000,
+         "chg_pct_24h": 40.0},
+        # legit coins with smaller moves
+        {"symbol": "DOGEUSDT", "base": "DOGE", "vol_usd_24h": 10_000_000,
+         "chg_pct_24h": 3.0},
+        {"symbol": "BTCUSDT", "base": "BTC", "vol_usd_24h": 10_000_000,
+         "chg_pct_24h": 2.0},
+        {"symbol": "UNIUSDT", "base": "UNI", "vol_usd_24h": 10_000_000,
+         "chg_pct_24h": 5.0},
+    ]
+    out = select_top_movers(tickers, 10, 1_000_000)
+    assert "龙虾USDT" not in out
+    assert "BTCUPUSDT" not in out
+    # L1L2 (BTC) first, then DEFI (UNI), then MEME (DOGE)
+    assert out == ["BTCUSDT", "UNIUSDT", "DOGEUSDT"]
+
+
 def test_aggregate_10m_unit():
     from data import _aggregate_10m
     c5 = []
