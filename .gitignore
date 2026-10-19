@@ -1,0 +1,34 @@
+# Runtime state — never commit (contains positions, balances, signal ids)
+state.json
+lifecycle.jsonl
+lifecycle-live.jsonl
+last_run.json
+paper_trades.jsonl
+state-paper.json
+
+# Secrets — never commit
+.env
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+*.log
+
+# Live-mode runtime state — never commit (real-money position history)
+state-live.json
+lifecycle-live.jsonl
+
+# Dashboard runtime settings — local to each host, never commit
+dashboard_settings.json
+
+# Mode key files (filled by the user, never commit)
+.env.live
+.env.demo
+
+signals.db
+scanner_state.json

@@ -1,0 +1,193 @@
+# Copyright (c) 2026 aziz-sudrajat <azizsudrajat.stb4@gmail.com>
+# https://github.com/aziz-sudrajat
+#
+# All rights reserved. This file is part of the binance-futures-strict-bot project.
+# Unauthorized copying, modification, distribution, or false claim of
+# authorship is prohibited.
+
+"""Unit tests for the two-stage pipeline: scanner -> signals.db -> executor."""
+import os
+import sys
+import time
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from test_executor import FakeExchange, FakeMarket, _signal  # noqa: E402
+
+from executor import Executor  # noqa: E402
+from lifecycle import LifecycleLogger  # noqa: E402
+from risk import RiskManager  # noqa: E402
+from signals_db import SignalDB  # noqa: E402
+from state import StateStore  # noqa: E402
+import config  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _trading_hours_open(monkeypatch):
+    # These tests exercise the from-db execution flow, not the hours gate
+    # (covered in test_trading_hours.py): force entries allowed.
+    monkeypatch.setattr(config, "within_trading_hours", lambda now=None: True)
+
+
+@pytest.fixture
+def workdir(tmp_path):
+    return str(tmp_path)
+
+
+def _rig(workdir):
+    market = FakeMarket(live=100.0)
+    exchange = FakeExchange(balance=10_000.0)
+    exchange.market_price = {"BTCUSDT": 100.0}
+    state = StateStore(os.path.join(workdir, "state.json"))
+    lifecycle = LifecycleLogger(os.path.join(workdir, "lifecycle.jsonl"))
+    risk = RiskManager(state, exchange.get_balance)
+    executor = Executor(market, exchange, risk, state, lifecycle,
+                        universe=["BTCUSDT"],
+                        evaluate_fn=lambda s, m: (None, "stub"))
+    return executor, exchange, state
+
+
+def _db_signal(**kw):
+    s = dict(_signal("BTCUSDT"))
+    s.update(kw)
+    return s
+
+
+def test_confidence_gate_rejects_low_confidence(workdir):
+    # K1 (audit): signals with confidence < CONFIDENCE_THRESHOLD_MODERATE (65)
+    # must never be auto-traded, even if quality passes.
+    executor, exchange, state = _rig(workdir)
+    db_path = os.path.join(workdir, "signals.db")
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal(confidence=10), "SIDLOW", expiry_min=30)
+    db.close()
+
+    summary = executor.scan_from_db(db_path)
+    assert summary["opened"] == 0
+    assert summary["rejected"] >= 1
+
+
+def test_scan_from_db_opens_and_consumes(workdir):
+    executor, exchange, state = _rig(workdir)
+    db_path = os.path.join(workdir, "signals.db")
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal(), "SID1", expiry_min=30)
+    db.close()
+
+    summary = executor.scan_from_db(db_path)
+    assert summary["opened"] == 1
+    assert summary["approved"] == 1
+    assert exchange.get_positions(), "position should be open on Binance"
+    assert state.seen_signal("SID1")
+
+    db = SignalDB(db_path)
+    assert db.stats()["consumed"] == 1
+    db.close()
+
+
+def test_scan_from_db_ignores_expired(workdir):
+    executor, exchange, state = _rig(workdir)
+    db_path = os.path.join(workdir, "signals.db")
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal(), "SIDX", expiry_min=30)
+    # force-expire the row
+    db._conn.execute("UPDATE signals SET expires_at = 1 WHERE signal_id='SIDX'")
+    db._conn.commit()
+    db.close()
+
+    summary = executor.scan_from_db(db_path)
+    assert summary["opened"] == 0
+    assert summary["approved"] == 0
+    assert not exchange.get_positions()
+
+
+def test_scan_from_db_duplicate_sid_rejected(workdir):
+    executor, exchange, state = _rig(workdir)
+    db_path = os.path.join(workdir, "signals.db")
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal(), "SIDDUP", expiry_min=30)
+    db.close()
+
+    s1 = executor.scan_from_db(db_path)
+    assert s1["opened"] == 1
+
+    # scanner re-inserts the same signal id; executor must not open twice
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal(), "SIDDUP", expiry_min=30)
+    db.close()
+    s2 = executor.scan_from_db(db_path)
+    assert s2["opened"] == 0
+    assert s2["rejected"] >= 1
+    assert len(exchange.get_positions()) == 1
+
+
+def test_scanner_run_pass_writes_approved(tmp_path, monkeypatch):
+    import scanner as scanner_mod
+
+    class FakeMarket2:
+        def list_okx_swap_symbols(self):
+            return ["AAAUSDT", "BBBUSDT"]
+
+    def fake_eval(symbol, market):
+        if symbol == "AAAUSDT":
+            return dict(_signal(symbol)), "stub"
+        return None, "bearish"
+
+    monkeypatch.setattr(scanner_mod, "evaluate_symbol", fake_eval)
+    monkeypatch.setattr(scanner_mod, "signal_candle_close_ms",
+                        lambda m, s: 1_700_000_000_000)
+    monkeypatch.setattr(scanner_mod, "make_signal_id",
+                        lambda s, c, d: f"SID-{s}")
+    monkeypatch.setattr(scanner_mod, "THROTTLE_SEC", 0)
+
+    db_path = str(tmp_path / "signals.db")
+    db = SignalDB(db_path)
+    stats = scanner_mod.run_pass(FakeMarket2(), db, expiry_min=30,
+                                 two_stage=False)
+    db.close()
+
+    assert stats["symbols"] == 2
+    assert stats["approved"] == 1
+    assert stats["rejected"] == 1
+    db = SignalDB(db_path)
+    fresh = db.get_fresh_signals()
+    assert len(fresh) == 1 and fresh[0]["symbol"] == "AAAUSDT"
+    db.close()
+
+
+def _db_signal_sym(symbol, **kw):
+    s = dict(_signal(symbol))
+    s.update(kw)
+    return s
+
+
+def test_scan_from_db_row_crash_does_not_kill_batch(workdir, monkeypatch):
+    # M5: one crashing row must not abort the batch, and the poison row is
+    # marked consumed (fail-closed) so it cannot block every cycle.
+    # (Two symbols: SignalDB keeps one active signal per symbol.)
+    executor, exchange, state = _rig(workdir)
+    exchange.market_price["ETHUSDT"] = 100.0
+    db_path = os.path.join(workdir, "signals.db")
+    db = SignalDB(db_path)
+    db.upsert_signal(_db_signal_sym("BTCUSDT"), "SID-BAD", expiry_min=30)
+    db.upsert_signal(_db_signal_sym("ETHUSDT"), "SID-GOOD", expiry_min=30)
+    db.close()
+
+    real_try_open = executor._try_open
+
+    def flaky(symbol, signal, sid, balance):
+        if sid == "SID-BAD":
+            raise RuntimeError("boom")
+        return real_try_open(symbol, signal, sid, balance)
+
+    monkeypatch.setattr(executor, "_try_open", flaky)
+    summary = executor.scan_from_db(db_path)
+    assert summary["opened"] == 1
+    assert summary["rejected"] == 1
+    assert len(summary["errors"]) == 1
+
+    db = SignalDB(db_path)
+    assert db.stats()["consumed"] == 2
+    db.close()

@@ -1,0 +1,347 @@
+# Copyright (c) 2026 aziz-sudrajat <azizsudrajat.stb4@gmail.com>
+# https://github.com/aziz-sudrajat
+#
+# All rights reserved. This file is part of the binance-futures-strict-bot project.
+# Unauthorized copying, modification, distribution, or false claim of
+# authorship is prohibited.
+
+"""Unit tests for the `binance` terminal shell framework."""
+import pytest
+from rich.console import Console
+
+import shell_ui
+from shell_ui import (COMMANDS, coerce_setting, lookup_command, parse_line,
+                      positions_table, radar_table, settings_table,
+                      signals_table, status_panel, suggest_command)
+
+
+def _render(renderable) -> str:
+    c = Console(record=True, width=100)
+    c.print(renderable)
+    return c.export_text()
+
+
+# ------------------------------------------------------- command framework
+def test_parse_line():
+    assert parse_line("scan --top 10") == ("scan", ["--top", "10"])
+    assert parse_line('set key "a b"') == ("set", ["key", "a b"])
+    assert parse_line("") == ("", [])
+    assert parse_line("SCAN") == ("scan", [])
+
+
+def test_lookup_aliases():
+    assert lookup_command("pos").name == "position"
+    assert lookup_command("bal").name == "balance"
+    assert lookup_command("trade").name == "auto-trade"
+    assert lookup_command("q").name == "exit"
+    assert lookup_command("nope") is None
+
+
+def test_suggest():
+    assert "scan" in suggest_command("scann")
+    assert "position" in suggest_command("positon")
+
+
+def test_commands_have_handlers():
+    import binance as bsh
+    shell = bsh.BinanceShell()
+    names = {c.name for c in COMMANDS}
+    # every non-trivial command must dispatch without "belum diimplementasi"
+    for name in names - {"clear", "exit", "help"}:
+        assert name in ("scan", "cari", "entry", "auto-trade", "setting", "set",
+                        "position", "balance", "signals", "scanner", "mode",
+                        "events", "kill", "dashboard", "signal-mode"), name
+
+
+# ------------------------------------------------------- dispatch
+def test_dispatch_help_unknown_exit(capsys):
+    import binance as bsh
+    shell = bsh.BinanceShell()
+    assert shell.dispatch("help") is True
+    assert shell.dispatch("help scan") is True
+    assert shell.dispatch("scann") is True  # suggestion, no crash
+    assert shell.dispatch("exit") is False
+    assert shell.dispatch("quit") is False
+
+
+def test_dispatch_mode():
+    import binance as bsh
+    shell = bsh.BinanceShell()
+    shell.dispatch("mode live")
+    assert shell.mode == "live"
+    shell.dispatch("mode demo")
+    assert shell.mode == "testnet"
+    shell.dispatch("mode bogus")
+    assert shell.mode == "testnet"  # unchanged
+
+
+def test_setting_fields_shared():
+    import dashboard
+    import tui
+    assert tui.FIELDS == dashboard.SETTING_FIELDS
+    assert len(dashboard.SETTING_FIELDS) >= 20
+
+
+# ------------------------------------------------------- coercion
+def test_coerce_setting():
+    assert coerce_setting("bool", "on") is True
+    assert coerce_setting("bool", "off") is False
+    assert coerce_setting("int", "75") == 75
+    assert coerce_setting("float", "1.5") == 1.5
+    assert coerce_setting("choice:a,b", "b") == "b"
+    with pytest.raises(ValueError):
+        coerce_setting("bool", "maybe")
+    with pytest.raises(ValueError):
+        coerce_setting("choice:a,b", "c")
+    with pytest.raises(ValueError):
+        coerce_setting("int", "x")
+
+
+# ------------------------------------------------------- rendering
+def test_status_panel():
+    st = {"balance": 10000.0, "balance_ok": True, "n_positions": 2,
+          "daily": {"realized_pnl": 12.5}, "kill_switch": {},
+          "settings": {"auto_trade": True}}
+    out = _render(status_panel(st, "paper"))
+    assert "PAPER" in out and "10,000.00" in out and "+12.50" in out
+
+
+def test_positions_table():
+    st = {"positions": [
+        {"symbol": "BTCUSDT", "side": "LONG", "qty": 0.5, "entry": 100.0,
+         "mark": 101.0, "unrealized_pnl": 0.5, "leverage": 3,
+         "stop_loss": 97.0}]}
+    out = _render(positions_table(st))
+    assert "BTCUSDT" in out and "LONG" in out
+    out2 = _render(positions_table({"positions": []}))
+    assert "tidak ada posisi terbuka" in out2
+
+
+def test_radar_table():
+    rows = [{"state": "approved", "symbol": "ETHUSDT", "direction": "LONG",
+             "quality": 82, "entry": 3000.0, "stop_loss": 2950.0,
+             "tp1": 3060.0, "tp2": 3100.0, "tp3": 3150.0},
+            {"state": "rejected", "symbol": "XRPUSDT"}]
+    out = _render(radar_table(rows))
+    assert "ETHUSDT" in out and "XRPUSDT" not in out
+
+
+def test_signals_and_settings_tables():
+    out = _render(signals_table(
+        [{"symbol": "SOLUSDT", "direction": "LONG", "quality": 78,
+          "entry": 150.0, "age_min": 3.2}]))
+    assert "SOLUSDT" in out
+    out2 = _render(settings_table(
+        {"auto_trade": True, "min_quality_score": 70},
+        [("auto_trade", "Auto-trade", "bool"),
+         ("min_quality_score", "Min quality", "int")]))
+    assert "min_quality_score" in out2 and "70" in out2
+
+
+# ------------------------------------------------------- signal modes
+def test_signal_mode_presets_match_current_defaults():
+    import config
+    ketat = config.SIGNAL_MODE_PRESETS["ketat"]
+    d = config.DASHBOARD_DEFAULTS
+    for k, v in ketat.items():
+        assert d[k] == v, k  # ketat == today's behavior, no drift
+    assert set(config.SIGNAL_MODE_PRESETS) == {"ketat", "sedang", "biasa"}
+    # strictness ordering: quality bar descends
+    assert (config.SIGNAL_MODE_PRESETS["ketat"]["min_quality_score"]
+            > config.SIGNAL_MODE_PRESETS["sedang"]["min_quality_score"]
+            > config.SIGNAL_MODE_PRESETS["biasa"]["min_quality_score"])
+
+
+def test_apply_signal_mode_preset():
+    import dashboard
+    s = {"signal_mode": "ketat", "min_quality_score": 70}
+    dashboard.apply_signal_mode_preset(s, "biasa")
+    assert s["signal_mode"] == "biasa"
+    assert s["min_quality_score"] == 50
+    assert s["bullish_only"] is False  # biasa = bidirectional (LONG+SHORT)
+    assert s["mtf_require_1d"] is False
+    assert s["mtf_require_1h"] is True  # aturan 2026-10-15: semua mode cek MTF 4h/1h/30m/15m
+    assert s["btc_align_required"] is False
+    assert s["veto_funding"] is False  # biasa: no vetoes
+    assert s["news_check"] is False
+    dashboard.apply_signal_mode_preset(s, "sedang")
+    assert s["mtf_require_1h"] is True  # sedang: 4h/1h/30m/15m + BTC
+    assert s["btc_align_required"] is True
+    assert s["pattern_required"] is False
+    dashboard.apply_signal_mode_preset(s, "ketat")
+    assert s["pattern_required"] is False  # FLEX ketat: reviews off
+    assert s["news_check"] is False
+    assert s["liq_review"] is False
+    assert s["whale_review"] is False
+    assert s["bullish_only"] is False  # FLEX: LONG+SHORT
+    assert s["mtf_require_1d"] is False
+    with __import__("pytest").raises(ValueError):
+        dashboard.apply_signal_mode_preset({}, "ngawur")
+
+
+def test_validate_signal_mode():
+    import dashboard
+    out = dashboard.validate_settings({"signal_mode": "sedang"})
+    assert out["signal_mode"] == "sedang"
+    with __import__("pytest").raises(ValueError):
+        dashboard.validate_settings({"signal_mode": "ngawur"})
+
+
+def test_shell_signal_mode_command(tmp_path, monkeypatch):
+    import binance as bsh
+    import dashboard
+    fake_path = str(tmp_path / "settings.json")
+    monkeypatch.setattr(dashboard, "SETTINGS_PATH", fake_path)
+    shell = bsh.BinanceShell()
+    shell.mode = "paper"
+    assert shell.dispatch("signal-mode") is True  # show, no crash
+    assert shell.dispatch("signal-mode sedang") is True
+    st = dashboard.load_settings(mode="paper")
+    assert st["signal_mode"] == "sedang"
+    assert st["min_quality_score"] == 55  # FLEX sedang
+    assert st["veto_liq_wall"] is False
+    # set alias also routes through the preset
+    assert shell.dispatch("set signal_mode biasa") is True
+    st = dashboard.load_settings(mode="paper")
+    assert st["signal_mode"] == "biasa"
+    assert st["bullish_only"] is False  # biasa = bidirectional
+    # unknown mode rejected, settings untouched
+    assert shell.dispatch("signal-mode ngawur") is True
+    assert dashboard.load_settings(mode="paper")["signal_mode"] == "biasa"
+
+
+def test_parse_line_tolerates_leading_colon():
+    from shell_ui import parse_line
+    assert parse_line(": scan --top 5") == ("scan", ["--top", "5"])
+    assert parse_line(":signal-mode sedang") == ("signal-mode", ["sedang"])
+    assert parse_line(":") == ("", [])
+    assert parse_line("scan") == ("scan", [])
+
+
+# ------------------------------------------------------- rejection breakdown
+def test_rejection_category():
+    from shell_ui import _rejection_category as cat
+    assert cat("bullish-only: 15m signal BEARISH WATCH") == \
+        "15m bearish/netral (mode long-only)"
+    assert cat("15m: no directional setup (NEUTRAL)") == \
+        "15m netral (tanpa setup)"
+    assert cat("STRICT cascade: 4h trend bearish (need bullish)") == \
+        "cascade MTF tak selaras"
+    assert cat("24h volume $895,370 below $2,000,000") == \
+        "volume 24h di bawah minimum"
+    assert cat("veto: [liq_wall/veto] wall") == "kena veto"
+    assert cat("weird new reason") == "lainnya / data error"
+
+
+def test_rejection_breakdown_groups():
+    from shell_ui import rejection_breakdown
+    from rich.console import Console
+    rows = [
+        {"symbol": "BTCUSDT", "state": "rejected",
+         "reason": "bullish-only: 15m signal BEARISH WATCH"},
+        {"symbol": "ETHUSDT", "state": "rejected",
+         "reason": "bullish-only: 15m signal BEARISH WATCH"},
+        {"symbol": "SOLUSDT", "state": "rejected",
+         "reason": "STRICT cascade: 4h trend bearish (need bullish)"},
+        {"symbol": "WALUSDT", "state": "approved", "quality": 75},
+    ]
+    t = rejection_breakdown(rows)
+    console = Console(record=True, width=100)
+    console.print(t)
+    out = console.export_text()
+    assert "15m bearish/netral (mode long-only)" in out
+    assert "2" in out  # count for the long-only bucket
+    assert "WALUSDT" not in out  # approved rows excluded
+
+
+def test_cari_entry_commands_registered():
+    import binance as bsh
+    shell = bsh.BinanceShell()
+    assert shell.dispatch("cari") is True  # missing arg -> usage, no crash
+    assert shell.dispatch("entry") is True
+    assert shell.dispatch("entry btc") is True  # missing direction -> usage
+
+
+def test_positions_table_uses_executor_keys():
+    # Regression: state.json stores direction/entry_price; the table
+    # showed "?" because it read side/entry.
+    from shell_ui import positions_table
+    from rich.console import Console
+    status = {"positions": [
+        {"symbol": "WALUSDT", "direction": "LONG", "qty": 1008.0,
+         "entry_price": 0.0589, "mark": 0.0644, "unrealized_pnl": 5.54,
+         "leverage": 10, "stop_loss": 0.0589},
+    ]}
+    console = Console(record=True, width=100)
+    console.print(positions_table(status))
+    out = console.export_text()
+    assert "WALUSDT" in out and "LONG" in out
+    assert "0.06" in out  # entry_price rendered
+    assert "?" not in out.replace("—", "")  # no unknown markers
+
+
+def test_positions_table_missing_mark_shows_dash():
+    from shell_ui import positions_table
+    from rich.console import Console
+    status = {"positions": [
+        {"symbol": "BTCUSDT", "direction": "SHORT", "qty": 0.02,
+         "entry_price": 81950.0, "leverage": 20, "stop_loss": 83000.0},
+    ]}
+    console = Console(record=True, width=100)
+    console.print(positions_table(status))
+    out = console.export_text()
+    assert "SHORT" in out and "81,950.00" in out
+
+
+def test_error_print_escapes_brackets():
+    # Regression: an exception message containing [...] (e.g. "['liq_wall']")
+    # crashed Rich markup parsing and killed the shell instead of showing it.
+    from rich.console import Console
+    from rich.markup import escape
+    console = Console(record=True, width=100)
+    e = ValueError("scan with vetoes DISABLED by operator: ['liq_wall']")
+    console.print(f"[red]error:[/red] {escape(str(e))}")  # must not raise
+    out = console.export_text()
+    assert "liq_wall" in out
+
+
+def test_mode_files_separates_paper_testnet_live():
+    # Regression: paper mode wrote to testnet's state.json, so the testnet
+    # loop would try to manage paper positions as real ones.
+    from dashboard import mode_files
+    import config
+    assert mode_files("paper") == (config.EXEC_PAPER_STATE_FILE,
+                                   config.EXEC_PAPER_LIFECYCLE_FILE)
+    assert mode_files("testnet") == (config.EXEC_STATE_FILE,
+                                     config.EXEC_LIFECYCLE_FILE)
+    assert mode_files("live") == (config.EXEC_LIVE_STATE_FILE,
+                                  config.EXEC_LIVE_LIFECYCLE_FILE)
+    assert len({mode_files(m)[0] for m in ("paper", "testnet", "live")}) == 3
+
+
+def test_autotrade_view_survives_bracket_in_error():
+    # Regression: scan raised an error containing "[/]" (e.g. from an
+    # exchange message); _autotrade_view rendered summary["error"] with
+    # Rich markup -> MarkupError "closing tag '[/]' has nothing to close".
+    from rich.markup import escape
+    from rich.console import Console
+    import shell_ui
+    err = "order [/fapi/v1/order] not found"
+    summary = {"error": escape(err[:120])}  # as built in cmd_autotrade
+    console = Console(record=True, width=100)
+    # simulate the summary panel rendering from _autotrade_view
+    s = {k: v for k, v in summary.items() if k != "errors"}
+    console.print("  ".join(f"{k}=[bold]{v}[/bold]" for k, v in s.items()))
+    out = console.export_text()
+    assert "/fapi/v1/order" in out
+
+
+def test_events_table_escapes_reason():
+    # Reason text with brackets must not break Rich markup.
+    from shell_ui import events_table
+    from rich.console import Console
+    ev = [{"time": "07:00", "symbol": "STXUSDT", "state": "rejected",
+           "quality": 90, "reason": "order [/fapi/v1/order] gone"}]
+    console = Console(record=True, width=100)
+    console.print(events_table(ev))  # must not raise
+    assert "/fapi/v1/order" in console.export_text()
