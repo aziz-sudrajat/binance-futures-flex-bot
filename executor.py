@@ -2329,6 +2329,55 @@ class Executor:
         return o.get("status") == "FILLED"
 
     # ------------------------------------------------------------------ loop
+    def _print_quiet_status(self) -> None:
+        """Print ONLY open positions + PnL. Called each cycle in quiet mode."""
+        import trade_kit
+        positions = self.state.get("positions", {})
+        # Get live unrealized PnL per position.
+        live = {}
+        try:
+            for p in self.exchange.get_positions():
+                sym = str(p.get("symbol", ""))
+                try:
+                    live[sym] = float(p.get("unrealized_pnl") or 0)
+                except (TypeError, ValueError):
+                    pass
+        except Exception:
+            pass
+        total_u = sum(live.values())
+        # Realized today.
+        total_r = 0.0
+        try:
+            import datetime
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            for ev in self.lifecycle.events():
+                if str(ev.get("ts", ""))[:10] == today:
+                    try:
+                        total_r += float(ev.get("pnl") or 0)
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+        # Clear screen and print clean status.
+        print("\033[2J\033[H", end="")
+        print(f"\U0001F4B0 PnL unrealized: {'+' if total_u >= 0 else ''}${total_u:.2f} | "
+              f"realized hari ini: {'+' if total_r >= 0 else ''}${total_r:.2f}")
+        print("-" * 60)
+        if not positions:
+            print("(tidak ada posisi terbuka)")
+        else:
+            for pid, pos in sorted(positions.items(),
+                                   key=lambda kv: kv[1].get("opened_at") or 0):
+                sym = str(pos.get("symbol", "?"))
+                direction = str(pos.get("direction", "?")).upper()
+                entry = pos.get("entry_price", 0)
+                margin = pos.get("margin_usdt", 0)
+                u = live.get(sym, 0)
+                u_str = f"{'+' if u >= 0 else ''}${u:.2f}"
+                print(f"{sym:12} {direction:5} @ {entry:<10} | "
+                      f"margin ${float(margin):.2f} | PnL {u_str}")
+        print("-" * 60, flush=True)
+
     def run_loop(self, stop_after: int | None = None,
                  from_db: bool = False, db_path: str = "signals.db") -> None:
         """Run scan cycles forever (or stop_after cycles, for tests/smoke).
@@ -2362,25 +2411,18 @@ class Executor:
         self.cleanup_orphan_orders()
         n = 0
         quiet = getattr(self, "quiet", False)
-        spinner = None
-        if quiet:
-            try:
-                import quiet_ui
-                spinner = quiet_ui.Spinner("Scanning market")
-            except Exception:
-                spinner = None
         while not self.shutdown_event.is_set():
             log.debug("scan cycle %d start", n + 1)
-            if spinner:
-                spinner.start()
             try:
                 summary = (self.scan_from_db(db_path) if from_db
                            else self.scan_once())
-            finally:
-                if spinner:
-                    spinner.stop()
-            try:
-                if trade_kit is not None:
+                if quiet:
+                    # ONLY positions + PnL. Nothing else.
+                    try:
+                        self._print_quiet_status()
+                    except Exception:
+                        pass
+                elif trade_kit is not None:
                     print(trade_kit.cycle_line(n + 1, summary),
                           flush=True)
                 else:  # pragma: no cover - display module missing
