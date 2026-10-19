@@ -66,7 +66,7 @@ class TestResolve:
         assert cfg == {"margin": 100.0, "leverage": 10, "auto_tp": 20.0,
                        "margin_mode": "ISOLATED", "run_mode": "paper",
                        "once": False, "dry_run": False, "confirm_yes": False,
-                       "verbose": False}
+                       "verbose": False, "max_exposure_pct": None}
 
     def test_bad_margin(self):
         with pytest.raises(ValueError):
@@ -106,11 +106,12 @@ class TestBuildCommand:
         assert cmd[1].endswith("run_executor.py")
 
     def test_live_command_has_no_test_flags(self):
+        # user 2026-10-19: -m/-l now allowed for live.
         cfg = bf.resolve(_args(specs=["live"]))
         cmd = bf.build_command(cfg)
         assert "--live" in cmd
-        assert "--fixed-margin-usdt" not in cmd
-        assert "--leverage" not in cmd
+        assert "--fixed-margin-usdt" in cmd
+        assert "--leverage" in cmd
 
     def test_once(self):
         cfg = bf.resolve(_args(specs=["testnet"], once=True))

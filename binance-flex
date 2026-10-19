@@ -96,6 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
                     metavar="PCT",
                     help=f"auto-TP saat profit +%% dari margin "
                          f"(default {DEFAULT_AUTO_TP:g}; 0 = mati)")
+    ap.add_argument("--max-exposure-pct", type=float, default=None,
+                    help="batas notional per koin (%% dari balance). "
+                         "Set tinggi mis. 999999 untuk bypass.")
     ap.add_argument("--once", action="store_true",
                     help="satu kali scan lalu berhenti (default: --loop)")
     ap.add_argument("--dry-run", action="store_true",
@@ -123,6 +126,7 @@ def resolve(args: argparse.Namespace) -> dict:
         "margin": args.margin,
         "leverage": args.leverage,
         "auto_tp": args.auto_tp,
+        "max_exposure_pct": getattr(args, "max_exposure_pct", None),
         "margin_mode": margin_mode.upper(),
         "run_mode": run_mode,
         "once": args.once,
@@ -161,9 +165,11 @@ def build_command(cfg: dict) -> list[str]:
     """Build the run_executor.py argv for the resolved config."""
     cmd = [sys.executable, os.path.join(HERE, "run_executor.py"),
            f"--{cfg['run_mode']}"]
-    if cfg["run_mode"] in ("paper", "testnet"):
-        cmd += ["--fixed-margin-usdt", repr(cfg["margin"]),
-                "--leverage", str(cfg["leverage"])]
+    # user 2026-10-19: -m/-l berlaku semua mode termasuk live.
+    cmd += ["--fixed-margin-usdt", repr(cfg["margin"]),
+            "--leverage", str(cfg["leverage"])]
+    if cfg.get("max_exposure_pct"):
+        cmd += ["--max-exposure-pct", str(cfg["max_exposure_pct"])]
     cmd.append("--once" if cfg["once"] else "--loop")
     if not cfg.get("verbose"):
         cmd.append("--quiet")

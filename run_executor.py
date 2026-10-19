@@ -167,7 +167,8 @@ def build(args, env: dict | None = None):
         mode = "PAPER"
     risk = RiskManager(state, exchange.get_balance,
                        get_wallet_balance=exchange.get_wallet_balance,
-                       get_equity=exchange.get_margin_balance)
+                       get_equity=exchange.get_margin_balance,
+                       per_symbol_cap_pct=getattr(args, 'max_exposure_pct', None))
     tiers = _parse_leverage_tiers(args.leverage_tiers)
     settings_mode = "live" if is_live else ("testnet" if args.testnet
                                             else "paper")
@@ -339,6 +340,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="paper mode (default)")
     ap.add_argument("--testnet", action="store_true",
                     help="trade the Binance Futures testnet (needs env keys)")
+    ap.add_argument("--max-exposure-pct", type=float, default=None,
+                        help="Max position notional as %% of balance "
+                        "(default: 20). Set very high to bypass.")
     ap.add_argument("--live", action="store_true",
                     help="trade REAL Binance Futures mainnet (needs env keys; "
                          "REAL MONEY; refuses all TEST ONLY flags)")
