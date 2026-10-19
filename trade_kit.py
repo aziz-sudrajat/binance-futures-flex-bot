@@ -122,6 +122,21 @@ def print_close(pos: dict, fill_px: float, net: float,
           flush=True)
 
 
+def cycle_line(n: int, summary: dict) -> str:
+    """Neat one-line scan-cycle summary (replaces the raw dict dump).
+
+    Example:
+        2026-10-19 16:49:43 | cycle 3 | approved 2 | dibuka 1 | kelola 1 | error 0
+    """
+    approved = summary.get("approved", 0)
+    opened = summary.get("opened", 0)
+    managed = summary.get("managed", 0)
+    errors = summary.get("errors", [])
+    n_err = len(errors) if isinstance(errors, list) else int(errors or 0)
+    return (f"{wib_str()} | cycle {n} | approved {approved} | "
+            f"dibuka {opened} | kelola {managed} | error {n_err}")
+
+
 def positions_table(positions: dict) -> str:
     """Render open positions as a plain-text kit table.
 

@@ -2323,11 +2323,15 @@ class Executor:
         self.cleanup_orphan_orders()
         n = 0
         while not self.shutdown_event.is_set():
-            log.info("--- scan cycle %d ---", n + 1)
+            log.debug("scan cycle %d start", n + 1)
             try:
                 summary = (self.scan_from_db(db_path) if from_db
                            else self.scan_once())
-                log.info("cycle summary: %s", summary)
+                if trade_kit is not None:
+                    print(trade_kit.cycle_line(n + 1, summary),
+                          flush=True)
+                else:  # pragma: no cover - display module missing
+                    log.info("cycle summary: %s", summary)
             except Exception:  # noqa: BLE001 - the loop must survive
                 log.exception("scan cycle failed")
             n += 1

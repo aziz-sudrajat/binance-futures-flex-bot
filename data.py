@@ -199,6 +199,20 @@ class _BoundedTTLCache:
         self._d.clear()
 
 
+def _short_err(exc: BaseException) -> str:
+    """One-line reason for a fetch exception (neat log lines).
+
+    requests HTTPError -> "HTTP 400"; otherwise the first line of the
+    message, capped at 80 chars. Full tracebacks stay in debug logs.
+    """
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    if code:
+        return f"HTTP {code}"
+    s = str(exc).split("\n")[0].strip()
+    return s[:80] if s else type(exc).__name__
+
+
 class MarketData:
     def __init__(self, session: requests.Session | None = None):
         self.session = session or httputil.ThrottledSession()
@@ -268,9 +282,9 @@ class MarketData:
             try:
                 candles = fetchers[venue](symbol, interval, limit)
                 if venue != primary:
-                    log.info("%s klines primary failed for %s %s (%r); "
+                    log.info("%s klines primary failed for %s %s (%s); "
                              "fell back to %s", primary, symbol, interval,
-                             first_err, venue)
+                             _short_err(first_err), venue)
                 return candles
             except Exception as exc:  # noqa: BLE001
                 if first_err is None:
@@ -284,8 +298,8 @@ class MarketData:
                 # Continue to next venue only if fallback allowed
                 if not MARKET_DATA_FALLBACK_BINANCE and venue == primary:
                     raise
-                log.warning("%s klines failed for %s %s (%r); trying next",
-                            venue, symbol, interval, exc)
+                log.warning("%s klines failed for %s %s (%s); trying next",
+                            venue, symbol, interval, _short_err(exc))
         raise RuntimeError(
             f"klines unavailable for {symbol} {interval}: {first_err!r}"
         )

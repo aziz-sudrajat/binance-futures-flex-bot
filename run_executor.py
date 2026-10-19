@@ -42,6 +42,10 @@ import threading
 import time
 
 import config
+try:
+    import trade_kit  # neat kit-style terminal lines (display only)
+except ImportError:  # pragma: no cover - display must never break trading
+    trade_kit = None
 import logutil
 from data import MarketData
 from exchange import ExchangeClient
@@ -422,7 +426,10 @@ def main(argv: list[str] | None = None) -> int:
         cycle_start_ms = int(time.time() * 1000)
         summary = (executor.scan_from_db(args.db) if args.from_db
                    else executor.scan_once())
-        log.info("once summary: %s", summary)
+        if trade_kit is not None:
+            print(trade_kit.cycle_line(1, summary), flush=True)
+        else:  # pragma: no cover - display module missing
+            log.info("once summary: %s", summary)
         _write_last_run(mode, executor.lifecycle, cycle_start_ms, summary)
     else:
         _install_shutdown_handlers(executor)

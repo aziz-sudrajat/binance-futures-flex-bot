@@ -66,3 +66,47 @@ def test_positions_table_columns():
 
 def test_positions_table_empty():
     assert "tidak ada posisi terbuka" in positions_table({})
+
+
+def test_cycle_line():
+    from trade_kit import cycle_line
+    line = cycle_line(3, {"approved": 2, "opened": 1, "managed": 1,
+                          "errors": []})
+    for needle in ("cycle 3", "approved 2", "dibuka 1", "kelola 1",
+                   "error 0"):
+        assert needle in line, needle
+    assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", line)
+
+
+def test_cycle_line_counts_error_list():
+    from trade_kit import cycle_line
+    line = cycle_line(1, {"approved": 0, "opened": 0, "managed": 0,
+                          "errors": ["boom", "bam"]})
+    assert "error 2" in line
+
+
+def test_short_err_http():
+    from data import _short_err
+
+    class Resp:
+        status_code = 400
+
+    class HTTPError(Exception):
+        def __init__(self):
+            super().__init__("400 Client Error: Bad Request for url: "
+                             "https://fapi.binance.com/fapi/v1/klines?"
+                             "symbol=USDT&interval=15m&limit=222")
+            self.response = Resp()
+
+    assert _short_err(HTTPError()) == "HTTP 400"
+
+
+def test_short_err_plain():
+    from data import _short_err
+    assert _short_err(ValueError("no OKX SWAP mapping for USDT")) == \
+        "no OKX SWAP mapping for USDT"
+
+
+def test_short_err_empty():
+    from data import _short_err
+    assert _short_err(ValueError()) == "ValueError"
