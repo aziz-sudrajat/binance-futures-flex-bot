@@ -2361,11 +2361,25 @@ class Executor:
             log.exception("startup reconcile failed")
         self.cleanup_orphan_orders()
         n = 0
+        quiet = getattr(self, "quiet", False)
+        spinner = None
+        if quiet:
+            try:
+                import quiet_ui
+                spinner = quiet_ui.Spinner("Scanning market")
+            except Exception:
+                spinner = None
         while not self.shutdown_event.is_set():
             log.debug("scan cycle %d start", n + 1)
+            if spinner:
+                spinner.start()
             try:
                 summary = (self.scan_from_db(db_path) if from_db
                            else self.scan_once())
+            finally:
+                if spinner:
+                    spinner.stop()
+            try:
                 if trade_kit is not None:
                     print(trade_kit.cycle_line(n + 1, summary),
                           flush=True)

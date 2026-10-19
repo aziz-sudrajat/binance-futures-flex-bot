@@ -65,7 +65,8 @@ class TestResolve:
                                specs=["isolated", "paper"], auto_tp=20.0))
         assert cfg == {"margin": 100.0, "leverage": 10, "auto_tp": 20.0,
                        "margin_mode": "ISOLATED", "run_mode": "paper",
-                       "once": False, "dry_run": False, "confirm_yes": False}
+                       "once": False, "dry_run": False, "confirm_yes": False,
+                       "verbose": False}
 
     def test_bad_margin(self):
         with pytest.raises(ValueError):

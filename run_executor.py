@@ -179,6 +179,7 @@ def build(args, env: dict | None = None):
                         leverage_tiers=tiers,
                         leverage_default=args.leverage_default,
                         settings_mode=settings_mode)
+    executor.quiet = bool(getattr(args, "quiet", False))
     return executor, mode
 
 
@@ -381,6 +382,9 @@ def main(argv: list[str] | None = None) -> int:
                          "line, via logutil.JsonFormatter) instead of the "
                          "readable default. Overrides BOT_LOG_JSON.")
     args = ap.parse_args(argv)
+    if getattr(args, "quiet", False):
+        import quiet_ui
+        quiet_ui.setup_quiet()
     # BOT_MODE env (set by `source switch.sh live|demo`) selects the mode
     # when no explicit flag is given.
     if not args.live and not args.testnet:

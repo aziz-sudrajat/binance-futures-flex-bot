@@ -11,7 +11,7 @@ auto-TP saat profit +20% dari margin, loop jalan terus.
 
 Pakai:
     binance-flex [-m MARGIN] [-l LEVERAGE] [-a AUTO_TP_PCT]
-                 [--once] [--dry-run] [--yes]
+                 [--once] [--dry-run] [--yes] [--verbose]
                  [isolated|cross] [paper|testnet|live]
 
 Contoh:
@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="tampilkan konfigurasi + perintah tanpa menjalankan")
     ap.add_argument("--yes", action="store_true",
                     help="lewati konfirmasi mode live")
+    ap.add_argument("--verbose", action="store_true",
+                    help="tampilkan semua log (non-quiet)")
     ap.add_argument("specs", nargs="*",
                     help="isolated|cross dan paper|testnet|live "
                          "(urutan bebas, default: isolated paper)")
@@ -131,6 +133,7 @@ def resolve(args: argparse.Namespace) -> dict:
         "run_mode": run_mode,
         "once": args.once,
         "dry_run": args.dry_run,
+        "verbose": getattr(args, "verbose", False),
         "confirm_yes": args.yes,
     }
 
@@ -168,6 +171,8 @@ def build_command(cfg: dict) -> list[str]:
         cmd += ["--fixed-margin-usdt", repr(cfg["margin"]),
                 "--leverage", str(cfg["leverage"])]
     cmd.append("--once" if cfg["once"] else "--loop")
+    if not cfg.get("verbose"):
+        cmd.append("--quiet")
     return cmd
 
 
