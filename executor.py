@@ -1293,7 +1293,8 @@ class Executor:
                 self.lifecycle.log(sid, symbol, POSITION_OPENED,
                                    qty=pos["qty"], entry=fill_px)
                 if trade_kit is not None:
-                    trade_kit.print_open(pos, fill_px)
+                    if not getattr(self, 'quiet', False):
+                        trade_kit.print_open(pos, fill_px)
                 self.state.save()
                 return True
             # Bracket placement failed: keep retrying each scan (fail-safe,
@@ -1460,7 +1461,7 @@ class Executor:
             pos["brackets_placed"] = True
             self.lifecycle.log(sid, symbol, POSITION_OPENED,
                                qty=filled_qty, entry=fill_px)
-            if trade_kit is not None:
+            if trade_kit is not None and not getattr(self, 'quiet', False):
                 trade_kit.print_open(pos, fill_px)
         else:
             # Brackets failed: _check_entry_fill retries next cycle; the
@@ -2096,7 +2097,8 @@ class Executor:
                                    f"{reason} (partial fill, "
                                    f"{remaining:g} remaining)"))
         if done and trade_kit is not None:
-            trade_kit.print_close(pos, fill_px, net, reason)
+            if not getattr(self, 'quiet', False):
+                trade_kit.print_close(pos, fill_px, net, reason)
         summary["managed"] += 1
         self.state.save()
         log.info("%s %s closed @ %s (pnl %+0.2f)%s", pos_id, closed_reason,
@@ -2330,53 +2332,69 @@ class Executor:
 
     # ------------------------------------------------------------------ loop
     def _print_quiet_status(self) -> None:
-        """Print ONLY open positions + PnL. Called each cycle in quiet mode."""
-        import trade_kit
-        positions = self.state.get("positions", {})
-        # Get live unrealized PnL per position.
-        live = {}
-        try:
-            for p in self.exchange.get_positions():
-                sym = str(p.get("symbol", ""))
+        """Print ONLY open positions + PnL. Nothing else."""
+        import datetime
+        # Only OPEN positions (filter out closed).
+        all_pos = self.state.get("positions", {})
+        positions = {pid: p for pid, p in all_pos.items()
+                     if not p.get("closed")}
+        # Unrealized PnL per position from live market prices.
+        total_u = 0.0
+        lines = []
+        for pid, pos in sorted(positions.items(),
+                               key=lambda kv: kv[1].get("opened_at") or 0):
+            sym = str(pos.get("symbol", "?"))
+            direction = str(pos.get("direction", "?")).upper()
+            try:
+                entry = float(pos.get("entry_price") or 0)
+                qty = float(pos.get("qty") or 0)
+            except (TypeError, ValueError):
+                entry, qty = 0, 0
+            margin = pos.get("margin_usdt", 0)
+            try:
+                margin_f = float(margin or 0)
+            except (TypeError, ValueError):
+                margin_f = 0
+            u = 0.0
+            if entry > 0 and qty > 0:
                 try:
-                    live[sym] = float(p.get("unrealized_pnl") or 0)
+                    live_px = self.market.get_live_price(sym)
+                    if live_px and float(live_px) > 0:
+                        sign = -1 if direction == "SHORT" else 1
+                        u = sign * (float(live_px) - entry) * qty
+                        total_u += u
+                except Exception:
+                    pass
+            u_str = f"{'+' if u >= 0 else ''}${u:.2f}"
+            lines.append(f"{sym:12} {direction:5} @ {entry:<10} | "
+                         f"margin ${margin_f:.2f} | PnL {u_str}")
+        # Realized today.
+        total_r = 0.0
+        try:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            for ev in self.lifecycle.read_all():
+                try:
+                    ts_ms = int(ev.get("ts") or 0)
+                    if ts_ms > 0:
+                        ev_date = datetime.datetime.fromtimestamp(
+                            ts_ms / 1000).strftime("%Y-%m-%d")
+                        if ev_date == today:
+                            total_r += float(ev.get("pnl") or
+                                             ev.get("realized") or 0)
                 except (TypeError, ValueError):
                     pass
         except Exception:
             pass
-        total_u = sum(live.values())
-        # Realized today.
-        total_r = 0.0
-        try:
-            import datetime
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
-            for ev in self.lifecycle.events():
-                if str(ev.get("ts", ""))[:10] == today:
-                    try:
-                        total_r += float(ev.get("pnl") or 0)
-                    except (TypeError, ValueError):
-                        pass
-        except Exception:
-            pass
-        # Clear screen and print clean status.
-        print("\033[2J\033[H", end="")
+        # Print clean block (no screen clear, no extra fluff).
         print(f"\U0001F4B0 PnL unrealized: {'+' if total_u >= 0 else ''}${total_u:.2f} | "
               f"realized hari ini: {'+' if total_r >= 0 else ''}${total_r:.2f}")
-        print("-" * 60)
-        if not positions:
+        print("-" * 55)
+        if not lines:
             print("(tidak ada posisi terbuka)")
         else:
-            for pid, pos in sorted(positions.items(),
-                                   key=lambda kv: kv[1].get("opened_at") or 0):
-                sym = str(pos.get("symbol", "?"))
-                direction = str(pos.get("direction", "?")).upper()
-                entry = pos.get("entry_price", 0)
-                margin = pos.get("margin_usdt", 0)
-                u = live.get(sym, 0)
-                u_str = f"{'+' if u >= 0 else ''}${u:.2f}"
-                print(f"{sym:12} {direction:5} @ {entry:<10} | "
-                      f"margin ${float(margin):.2f} | PnL {u_str}")
-        print("-" * 60, flush=True)
+            for ln in lines:
+                print(ln)
+        print("-" * 55, flush=True)
 
     def run_loop(self, stop_after: int | None = None,
                  from_db: bool = False, db_path: str = "signals.db") -> None:
