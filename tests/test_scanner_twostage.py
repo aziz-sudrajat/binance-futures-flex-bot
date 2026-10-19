@@ -194,11 +194,13 @@ def test_prefilter_false_implies_engine_rejects(scenario, monkeypatch):
     assert sig is None
 
 
-def test_prefilter_true_does_not_preempt_later_stages():
+def test_prefilter_true_does_not_preempt_later_stages(monkeypatch):
     """Accept direction, meaningful: a prefilter pass must not decide for
     the engine — here the symbol is bullish and MTF-aligned (prefilter
-    passes) but BTC 15m points bearish, so the full engine must still
-    reject at its stage 3."""
+    passes) but with the BTC gate explicitly enabled and BTC 15m bearish,
+    the full engine must still reject at its stage 3."""
+    import config
+    monkeypatch.setattr(config, "BTC_ALIGN_REQUIRED", True)
     m = _bull_market(btc_bearish=True)
     ok, direction = prefilter_symbol("TESTUSDT", m, tickers=None)
     assert ok is True and direction == "BULLISH"

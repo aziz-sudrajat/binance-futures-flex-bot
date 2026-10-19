@@ -42,8 +42,10 @@ MTF_CONFIRM_1D_BOOST = 6       # soft 1d delta: major trend aligned (relaxed cas
 MTF_CONFIRM_1D_PENALTY = 10    # soft 1d delta: major trend opposed (relaxed cascade)
 MTF_REQUIRE_1H = True         # sedang/ketat: 1h trend must align with signal
                               # direction (user spec 2026-10-15).
-BTC_ALIGN_REQUIRED = True     # sedang/ketat: BTC 15m direction must match the
-                              # signal direction (user spec 2026-10-15).
+BTC_ALIGN_REQUIRED = False    # FLEX (user spec 2026-10-19): bidirectional
+                              # bot — BTC direction must not gate a coin's own
+                              # 15m/10m/5m/1m setup. Re-enable via dashboard
+                              # knob btc_align_required if wanted.
 PATTERN_REQUIRED = True       # ketat: candlestick pattern must support the
                               # direction (user spec 2026-10-15).
 NEWS_CHECK = True             # ketat: coin news sentiment review.
@@ -616,7 +618,7 @@ SIGNAL_MODE_PRESETS = {
         "mtf_30m_mode": "LEAN",
         "mtf_require_1d": False,
         "mtf_require_1h": True,
-        "btc_align_required": True,
+        "btc_align_required": False,  # FLEX bidirectional: BTC direction no gate
         "pattern_required": False,
         "news_check": False,
         "liq_review": False,
@@ -728,7 +730,8 @@ DASHBOARD_DEFAULTS = {
     "mtf_30m_mode": "LEAN",     # FLEX: loosened from STRICT
     "mtf_require_1d": False,    # FLEX: 1d gate off (was hard gate)
     "mtf_require_1h": True,     # 1h trend alignment: hard gate (semua mode)
-    "btc_align_required": True,  # BTC 15m direction must match (sedang/ketat)
+    "btc_align_required": False,  # FLEX bidirectional (user 2026-10-19):
+    # BTC direction must not gate a coin setup
     "pattern_required": False,  # FLEX: off (was ketat review)
     "news_check": False,        # FLEX: off (was ketat review)
     "liq_review": False,        # FLEX: off (was ketat review)
