@@ -239,7 +239,7 @@ def get_symbol_sector(symbol: str) -> str | None:
 RISK_PCT_PER_TRADE = 1.0       # % of futures balance risked per trade
 MAX_LEVERAGE = 3               # max leverage multiplier
 TP_SPLIT = (0.4, 0.3, 0.3)     # scale-out fractions at TP1 / TP2 / TP3
-MAX_CONCURRENT_POSITIONS = 3
+MAX_CONCURRENT_POSITIONS = 999  # FLEX (user 2026-10-19): no cap, limited by balance only
 DAILY_LOSS_CAP_PCT = 3.0       # kill switch: stop trading if daily loss exceeds this
 PROFIT_TAKE_PCT = 0.0          # auto TP: market-close the whole position once
                                # unrealized PnL reaches this % of margin.
