@@ -24,10 +24,11 @@ Base URL override (for a non-geo-blocked host):
   BINANCE_FUTURES_BASE_URL (default: testnet URL for --testnet,
   mainnet URL for --live)
 
---testnet/--live without keys REFUSE to run. --live REFUSES all TEST ONLY
-flags (--fixed-margin-usdt, --leverage, --leverage-tiers, --leverage-default,
---manual): live always uses the production risk defaults
-(RISK_PCT_PER_TRADE, MAX_LEVERAGE) and real STRICT signals only.
+--testnet/--live without keys REFUSE to run. --live does NOT refuse
+--fixed-margin-usdt/--leverage (allowed, user 2026-10-19); it refuses only
+--leverage-tiers/--leverage-default/--manual. Live always uses the
+production risk defaults (RISK_PCT_PER_TRADE, MAX_LEVERAGE) and real
+STRICT signals only.
 """
 
 from __future__ import annotations
@@ -178,7 +179,8 @@ def build(args, env: dict | None = None):
                         leverage_override=args.leverage,
                         leverage_tiers=tiers,
                         leverage_default=args.leverage_default,
-                        settings_mode=settings_mode)
+                        settings_mode=settings_mode,
+                        per_symbol_cap_pct=getattr(args, "max_exposure_pct", None))
     executor.quiet = bool(getattr(args, "quiet", False))
     return executor, mode
 

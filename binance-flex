@@ -28,8 +28,8 @@ Yang dilakukan launcher:
   3. Tampilkan banner kit, lalu exec ke run_executor.py.
 
 Keamanan:
-  - -m/-l adalah flag TEST ONLY engine: DITOLAK untuk live (engine pun
-    menolaknya). Risk live hanya via dashboard (knob tighten-only).
+  - -m/-l berlaku semua mode (terutama live) sesuai user spec 2026-10-19;
+    engine tetap pakai dashboard knob tighten-only untuk risk live.
   - Mode live: banner merah + wajib konfirmasi (ketik LIVE / --yes).
 """
 
@@ -221,7 +221,11 @@ def main(argv=None) -> int:
         print(paint(f"binance-flex: {e}", "red", "bold"), file=sys.stderr)
         return 2
     if not cfg["dry_run"]:
-        apply_settings(cfg)
+        try:
+            apply_settings(cfg)
+        except ValueError as e:
+            print(paint(f"binance-flex: {e}", "red", "bold"), file=sys.stderr)
+            return 2
     print_banner(cfg)
     cmd = build_command(cfg)
     print(paint("  exec     : " + " ".join(cmd[1:]), "dim"))

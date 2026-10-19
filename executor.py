@@ -127,12 +127,16 @@ def make_signal_id(symbol: str, close_ms: int, direction: str) -> str:
 
 def compute_qty(balance: float, entry: float, stop: float,
                 filters: dict, risk_pct: float | None = None,
-                atr: float | None = None) -> tuple[float, str]:
+                atr: float | None = None,
+                exposure_cap_pct: float | None = None) -> tuple[float, str]:
     """Risk-based sizing. Returns (qty, note); qty == 0 means skip.
 
     qty = (balance * RISK_PCT_PER_TRADE/100) / |entry - stop|, floored to
-    stepSize, honoring minQty / minNotional and the per-symbol exposure cap.
-    risk_pct overrides the config default (dashboard may only tighten it).
+    stepSize, honoring minQty / minNotional. The per-symbol exposure cap is
+    applied here from `exposure_cap_pct` (or the config default
+    config.EXEC_MAX_EXPOSURE_PCT_PER_SYMBOL when None), so it shares ONE
+    source with risk.check_can_open and honors the --max-exposure-pct
+    override instead of double-restricting the position.
     When VOLATILITY_SCALING_ENABLED is True and atr is provided, dynamically
     scales down risk under high or extreme ATR % regimes.
     """
@@ -165,8 +169,12 @@ def compute_qty(balance: float, entry: float, stop: float,
     min_qty = filters.get("minQty", 0.0) or 0.0
     min_notional = filters.get("minNotional", 0.0) or 0.0
     qty = floor_to_step(risk_usdt / per_unit, step)
-    # Per-symbol exposure cap.
-    cap_notional = balance * config.EXEC_MAX_EXPOSURE_PCT_PER_SYMBOL / 100
+    # Per-symbol exposure cap. None -> config default
+    # (config.EXEC_MAX_EXPOSURE_PCT_PER_SYMBOL). An explicit override
+    # (e.g. --max-exposure-pct) is honored here so sizing and the risk gate
+    # (risk.check_can_open) share a single source.
+    cap_pct = exposure_cap_pct if exposure_cap_pct is not None else config.EXEC_MAX_EXPOSURE_PCT_PER_SYMBOL
+    cap_notional = balance * cap_pct / 100
     if qty * entry > cap_notional:
         qty = floor_to_step(cap_notional / entry, step)
     if qty < min_qty:
@@ -179,12 +187,15 @@ def compute_qty(balance: float, entry: float, stop: float,
 
 
 def compute_test_qty(fixed_margin_usdt: float, leverage: int, entry: float,
-                     filters: dict) -> tuple[float, str]:
+                     filters: dict, balance: float = 0.0,
+                     exposure_cap_pct: float | None = None) -> tuple[float, str]:
     """Fixed-margin sizing. Returns (qty, note); qty == 0 means skip.
 
     notional = fixed_margin_usdt * leverage; qty = notional / entry, floored
     to stepSize, honoring minQty / minNotional. The per-symbol exposure cap
-    and the other risk gates still apply downstream in risk.check_can_open.
+    is applied here from `exposure_cap_pct` (or config default), sharing a
+    single source with risk.check_can_open and honoring the
+    --max-exposure-pct override.
     """
     if fixed_margin_usdt is None or fixed_margin_usdt <= 0:
         return 0.0, "fixed margin must be > 0"
@@ -197,6 +208,14 @@ def compute_test_qty(fixed_margin_usdt: float, leverage: int, entry: float,
     min_notional = filters.get("minNotional", 0.0) or 0.0
     notional = fixed_margin_usdt * leverage
     qty = floor_to_step(notional / entry, step)
+    # Per-symbol exposure cap (single source; honors --max-exposure-pct).
+    # Applied only with a real balance, so a None/0 balance never collapses
+    # the position size.
+    if balance > 0:
+        cap_pct = exposure_cap_pct if exposure_cap_pct is not None else config.EXEC_MAX_EXPOSURE_PCT_PER_SYMBOL
+        cap_notional = balance * cap_pct / 100
+        if notional > cap_notional:
+            qty = floor_to_step(cap_notional / entry, step)
     if qty < min_qty:
         return 0.0, (f"qty {qty} < minQty {min_qty} "
                      f"(margin ${fixed_margin_usdt:.2f} x{leverage})")
@@ -390,7 +409,9 @@ class Executor:
                  leverage_override: int | None = None,
                  leverage_tiers: dict | None = None,
                  leverage_default: int | None = None,
-                 settings_mode: str | None = None):
+                 settings_mode: str | None = None,
+                 ignore_risk: bool = False,
+                 per_symbol_cap_pct: float | None = None):
         self.market = market
         self.exchange = exchange
         self.risk = risk
@@ -403,7 +424,12 @@ class Executor:
         self._poll_interval_min = poll_interval_min
         # Which dashboard settings section applies ("live"/"testnet"/"paper").
         self.settings_mode = settings_mode or "live"
-        # Graceful shutdown (1.3): run_executor installs SIGINT/SIGTERM
+        # user 2026-10-19: --ignore-risk bypasses risk.check_can_open.
+        self.ignore_risk = bool(ignore_risk)
+        # Exposure cap (percent of balance) passed through from the CLI
+        # --max-exposure-pct / RiskManager. Used by compute_qty /
+        # compute_test_qty so sizing shares one source with risk gates.
+        self.per_symbol_cap_pct = per_symbol_cap_pct
         # handlers that SET this event (never raise), so an in-flight scan
         # cycle — including any HTTP order request — is never interrupted
         # mid-flight. run_loop checks it only at safe points (between
@@ -917,13 +943,17 @@ class Executor:
         # 3. Sizing.
         if self.fixed_margin_usdt is not None:
             qty, note = compute_test_qty(self.fixed_margin_usdt, lev, entry,
-                                         filters)
+                                         filters,
+                                         balance=balance or 0.0,
+                                         exposure_cap_pct=self.per_symbol_cap_pct)
         elif ds.get("entry_mode") == "fixed_usdt":
             try:
                 fu = float(ds.get("fixed_usdt", 10.0))
             except (TypeError, ValueError):
                 fu = 10.0
-            qty, note = compute_test_qty(max(1.0, fu), lev, entry, filters)
+            qty, note = compute_test_qty(max(1.0, fu), lev, entry, filters,
+                                         balance=balance or 0.0,
+                                         exposure_cap_pct=self.per_symbol_cap_pct)
         else:
             signal_atr = signal.get("atr")
             try:
@@ -933,16 +963,18 @@ class Executor:
             qty, note = compute_qty(balance, entry, float(signal["stop_loss"]),
                                     filters,
                                     risk_pct=self._effective_risk_pct(),
-                                    atr=atr_val)
+                                    atr=atr_val,
+                                    exposure_cap_pct=self.per_symbol_cap_pct)
         if qty <= 0:
             return self._reject(symbol, sid, f"sizing: {note}")
         notional = qty * entry
 
-        # 4. Risk gates.
-        open_count = len(self._open_positions())
-        ok, reason = self.risk.check_can_open(symbol, notional, open_count)
-        if not ok:
-            return self._reject(symbol, sid, f"risk: {reason}")
+        # 4. Risk gates (skipped when --ignore-risk).
+        if not getattr(self, "ignore_risk", False):
+            open_count = len(self._open_positions())
+            ok, reason = self.risk.check_can_open(symbol, notional, open_count)
+            if not ok:
+                return self._reject(symbol, sid, f"risk: {reason}")
 
         # 4b. One position per coin (user 2026-10-16 — the WCTUSDT double
         # entry stacked $2 margin on one coin and the 2nd SL algo order was
@@ -1291,7 +1323,14 @@ class Executor:
             if self._place_brackets(pos_id, pos):
                 pos["brackets_placed"] = True
                 self.lifecycle.log(sid, symbol, POSITION_OPENED,
-                                   qty=pos["qty"], entry=fill_px)
+                                   qty=pos["qty"], entry=fill_px,
+                                   direction=pos["direction"],
+                                   margin_usdt=pos["margin_usdt"],
+                                   leverage=pos["leverage"],
+                                   stop_loss=pos["stop_loss"],
+                                   tp1=pos["tp"]["tp1"]["price"],
+                                   tp2=pos["tp"]["tp2"]["price"],
+                                   tp3=pos["tp"]["tp3"]["price"])
                 if trade_kit is not None:
                     if not getattr(self, 'quiet', False):
                         trade_kit.print_open(pos, fill_px)
@@ -1460,7 +1499,14 @@ class Executor:
         if self._place_brackets(pos_id, pos):
             pos["brackets_placed"] = True
             self.lifecycle.log(sid, symbol, POSITION_OPENED,
-                               qty=filled_qty, entry=fill_px)
+                               qty=filled_qty, entry=fill_px,
+                               direction=pos["direction"],
+                               margin_usdt=pos["margin_usdt"],
+                               leverage=pos["leverage"],
+                               stop_loss=pos["stop_loss"],
+                               tp1=pos["tp"]["tp1"]["price"],
+                               tp2=pos["tp"]["tp2"]["price"],
+                               tp3=pos["tp"]["tp3"]["price"])
             if trade_kit is not None and not getattr(self, 'quiet', False):
                 trade_kit.print_open(pos, fill_px)
         else:
